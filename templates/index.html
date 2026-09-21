@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>VoiceBridge NG</title>
+  <style>
+    :root{--navy:#071a3d;--blue:#1167ff;--gold:#f5bf37;--ink:#12213a;--muted:#68758a;--bg:#f2f6fc;--white:#fff}
+    *{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,sans-serif;background:linear-gradient(145deg,#edf4ff,#fff8e8);color:var(--ink);min-height:100vh}
+    header{background:var(--navy);color:white;padding:22px 24px}.brand{max-width:900px;margin:auto;display:flex;gap:13px;align-items:center}.mark{background:var(--gold);color:var(--navy);font-weight:900;border-radius:12px;padding:10px 12px}.brand h1{margin:0;font-size:22px}.brand p{margin:3px 0 0;color:#b9c7de;font-size:13px}
+    main{max-width:900px;margin:38px auto;padding:0 18px}.hero{text-align:center;margin-bottom:24px}.hero h2{font-size:clamp(28px,5vw,46px);margin:0 0 10px;color:var(--navy)}.hero p{color:var(--muted);max-width:650px;margin:auto;line-height:1.55}
+    .card{background:rgba(255,255,255,.95);border:1px solid #dfe7f3;border-radius:22px;padding:24px;box-shadow:0 18px 50px rgba(7,26,61,.1)}
+    label{display:block;font-weight:750;margin-bottom:9px}.drop{display:block;border:2px dashed #a7bbd8;border-radius:16px;padding:28px;text-align:center;background:#f8fbff}.drop input{max-width:100%}.hint{font-size:12px;color:var(--muted);margin:9px 0 0}.field{margin-bottom:18px}select{width:100%;padding:13px;border:1px solid #b9c8dc;border-radius:11px;background:#fff;color:var(--ink);font-size:15px}
+    button{width:100%;border:0;border-radius:13px;background:var(--blue);color:white;font-size:16px;font-weight:800;padding:15px;margin-top:18px;cursor:pointer}.error{background:#fff0f0;color:#9f1d1d;padding:13px;border-radius:10px;margin-bottom:16px}
+    .results{display:grid;gap:14px;margin-top:22px}.result{border:1px solid #e0e7f0;border-radius:15px;padding:17px;background:#fff}.result h3{margin:0 0 8px;color:var(--navy);font-size:14px;text-transform:uppercase;letter-spacing:.07em}.result p{white-space:pre-wrap;line-height:1.55;margin:0}.tag{display:inline-block;background:#eaf1ff;color:#0751c9;padding:5px 10px;border-radius:99px;font-weight:750}.confidence{margin-left:7px;background:#fff4d8;color:#805b00}.notice{margin-top:11px;color:#695116;font-size:13px}.editor{width:100%;min-height:105px;resize:vertical;border:1px solid #b9c8dc;border-radius:10px;padding:12px;font:inherit;line-height:1.5;color:var(--ink)}.copy,.secondary{width:auto;padding:9px 13px;margin:12px 8px 0 0;background:var(--navy);font-size:13px}.secondary{background:#edf3ff;color:#064ebd;border:1px solid #aac5f4}.status{font-size:13px;color:#177245;margin-top:8px}.action-card{border:2px solid #1167ff;background:linear-gradient(145deg,#f7faff,#fff)}.action-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:13px}.action-item{background:#f3f7fd;border-radius:10px;padding:11px;border:1px solid transparent}.action-item strong{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}.action-item span{white-space:pre-wrap}.warning{color:#9f1d1d;font-weight:750}.safety-banner{padding:11px 13px;border-radius:10px;margin-top:12px;font-weight:800}.safety-banner.safe{background:#e8f7ee;color:#166534}.safety-banner.alert{background:#fff0f0;color:#9f1d1d;border:1px solid #f2b8b8}.critical.safe-field{background:#effaf3;border-color:#9bd2ad}.critical.confirm-field{background:#fff1f1;border-color:#e99a9a}.critical.unknown-field{background:#f5f6f8;border-color:#d5dae1}.state-badge{display:inline-block;margin-top:7px;padding:4px 7px;border-radius:99px;font-size:10px;font-weight:900;letter-spacing:.04em}.safe-field .state-badge{background:#caefd7;color:#14532d}.confirm-field .state-badge{background:#ffd5d5;color:#991b1b}.unknown-field .state-badge{background:#e5e7eb;color:#4b5563}.field-reason{display:block;margin-top:6px;color:#7b2630;font-size:11px;line-height:1.35}@media(max-width:600px){.action-grid{grid-template-columns:1fr}}
+    footer{text-align:center;color:var(--muted);font-size:12px;padding:24px} @media(max-width:600px){main{margin-top:25px}.card{padding:17px}.hero{text-align:left}}
+  </style>
+</head>
+<body>
+  <header><div class="brand"><div class="mark">VB</div><div><h1>VoiceBridge NG</h1><p>Nigerian voice-note assistant</p></div></div></header>
+  <main>
+    <section class="hero"><h2>Understand every customer.</h2><p>Upload a WhatsApp voice note to transcribe the original speech, translate it into English and prepare a professional response.</p></section>
+    <section class="card">
+      {% if error %}<div class="error">{{ error }}</div>{% endif %}
+      <form method="post" enctype="multipart/form-data">
+        <div class="field"><label for="language">Spoken language</label><select id="language" name="language">{% for code, details in languages.items() %}<option value="{{ code }}" {% if selected == code %}selected{% endif %}>{{ details[1] }}</option>{% endfor %}</select><p class="hint">For voice notes shorter than 15 seconds, choose the language instead of automatic detection.</p></div>
+        <div class="field"><label for="model_size">Accuracy mode</label><select id="model_size" name="model_size">{% for code, label in models.items() %}<option value="{{ code }}" {% if selected_model == code %}selected{% endif %}>{{ label }}</option>{% endfor %}</select><p class="hint">Use Medium for short or difficult regional-language notes. Its first run downloads a larger model.</p></div>
+        <label for="audio">Customer voice note</label>
+        <div class="drop"><input id="audio" name="audio" type="file" accept="audio/*,.opus,.ogg,.m4a,.webm,.mp4" required><p class="hint">OPUS, OGG, MP3, M4A, WAV, WEBM or MP4 · maximum 25 MB</p></div>
+        <button type="submit" onclick="this.textContent='Processing…';this.disabled=true;this.form.submit()">Transcribe and translate</button>
+      </form>
+      {% if result %}
+      <div class="results">
+        <div class="result"><h3>Language and confidence</h3><span class="tag">{{ result.language }}</span><span class="tag confidence">{{ result.confidence }}%</span><p class="notice">{{ result.confidence_message }}</p></div>
+        <div class="result"><h3>Original transcript — editable</h3><textarea class="editor" id="transcript">{{ result.transcript }}</textarea><p class="hint">Correct names, amounts and misunderstood words while listening to the voice note.</p></div>
+        <div class="result"><h3>English meaning — editable</h3><textarea class="editor" id="english">{{ result.english }}</textarea><button class="secondary" type="button" onclick="regenerateAction()">Update Action Card from edits</button><p class="status" id="status"></p></div>
+        <div class="result action-card"><h3>VoiceBridge Action Card</h3>
+          <div id="safety-banner" class="safety-banner {{ 'alert' if result.action.needs_confirmation else 'safe' }}">{{ 'ACTION PAUSED — confirm highlighted fields' if result.action.needs_confirmation else 'READY FOR REVIEW — no critical uncertainty detected' }}</div>
+          <div class="action-grid">
+          <div class="action-item"><strong>Languages</strong><span id="action-languages">{{ result.action.languages|join(' + ') }}</span></div>
+          <div class="action-item"><strong>Intent</strong><span id="action-intent">{{ result.action.intent|replace('_', ' ')|title }}</span></div>
+          {% for key, label, element_id in [('product_or_service', 'Product / service', 'product'), ('quantity', 'Quantity', 'quantity'), ('amount', 'Amount', 'amount'), ('location', 'Location', 'location'), ('date', 'Date', 'date'), ('time', 'Time', 'time'), ('payment_status', 'Payment status', 'payment'), ('phone_or_reference', 'Order / payment reference', 'reference')] %}
+          {% set state = result.action.field_states[key] %}
+          <div id="critical-{{ element_id }}" class="action-item critical {{ 'confirm-field' if state.requires_confirmation else ('safe-field' if state.value is not none else 'unknown-field') }}">
+            <strong>{{ label }}</strong><span id="action-{{ element_id }}">{{ state.value if state.value is not none else 'Unknown' }}</span>
+            <small id="state-{{ element_id }}" class="state-badge">{{ 'REQUIRES CONFIRMATION' if state.requires_confirmation else ('HIGH-CONFIDENCE' if state.confidence == 'high' else 'NOT PROVIDED') }}</small>
+            <small id="reason-{{ element_id }}" class="field-reason">{{ state.reason or '' }}</small>
+          </div>
+          {% endfor %}
+          <div class="action-item"><strong>Customer</strong><span id="action-customer">{{ result.action.customer_name or 'Not stated' }}</span></div>
+          <div class="action-item"><strong>Urgency</strong><span id="action-urgency">{{ result.action.urgency or 'Not stated' }}</span></div>
+          <div class="action-item"><strong>Required action</strong><span id="action-required">{{ result.action.required_action }}</span></div>
+          <div class="action-item"><strong>Missing information</strong><span id="action-missing">{{ result.action.missing_information|join(', ') if result.action.missing_information else 'None detected' }}</span></div>
+          <div class="action-item"><strong>Confidence</strong><span id="action-confidence">{{ result.action.confidence }}</span></div>
+          <div class="action-item"><strong>Confirmation required</strong><span id="action-confirmation" class="{% if result.action.needs_confirmation %}warning{% endif %}">{{ 'Yes' if result.action.needs_confirmation else 'No' }}</span></div>
+        </div></div>
+        <div class="result"><h3>Suggested business reply</h3>{% if result.reply %}<p id="reply">{{ result.reply }}</p><button class="copy" type="button" onclick="copyReply(this)">Copy reply</button>{% else %}<p id="reply">Transcription was unreliable. Correct the English meaning above, then select “Update Action Card from edits.”</p>{% endif %}</div>
+      </div>
+      {% endif %}
+    </section>
+  </main>
+  <footer>Private MVP · Voice notes are deleted immediately after processing.</footer>
+  <script>
+    function showValue(id,value){document.getElementById(id).innerText=value===null||value===undefined||value===''?'Not stated':value;}
+    function updateCritical(key,elementId,state){
+      showValue('action-'+elementId,state.value===null?'Unknown':state.value);
+      const box=document.getElementById('critical-'+elementId);
+      box.className='action-item critical '+(state.requires_confirmation?'confirm-field':(state.value!==null?'safe-field':'unknown-field'));
+      document.getElementById('state-'+elementId).innerText=state.requires_confirmation?'REQUIRES CONFIRMATION':(state.confidence==='high'?'HIGH-CONFIDENCE':'NOT PROVIDED');
+      document.getElementById('reason-'+elementId).innerText=state.reason||'';
+    }
+    async function regenerateAction(){
+      const status=document.getElementById('status');
+      status.textContent='Updating business action…';
+      const response=await fetch('/analyze-action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transcript:document.getElementById('transcript').value,english:document.getElementById('english').value,language:'{{ result.language_code if result else '' }}',confidence:{{ result.confidence if result else 0 }}})});
+      const data=await response.json();
+      if(!response.ok){status.textContent=data.error||'Could not update the action.';return;}
+      const a=data.action;
+      showValue('action-languages',a.languages.join(' + '));showValue('action-intent',a.intent.replaceAll('_',' '));showValue('action-customer',a.customer_name);showValue('action-urgency',a.urgency);showValue('action-required',a.required_action);showValue('action-missing',a.missing_information.length?a.missing_information.join(', '):'None detected');showValue('action-confidence',a.confidence);showValue('action-confirmation',a.needs_confirmation?'Yes':'No');
+      const fieldIds={product_or_service:'product',quantity:'quantity',amount:'amount',location:'location',date:'date',time:'time',payment_status:'payment',phone_or_reference:'reference'};
+      Object.entries(fieldIds).forEach(([key,id])=>updateCritical(key,id,a.field_states[key]));
+      document.getElementById('action-confirmation').className=a.needs_confirmation?'warning':'';
+      const banner=document.getElementById('safety-banner');banner.className='safety-banner '+(a.needs_confirmation?'alert':'safe');banner.innerText=a.needs_confirmation?'ACTION PAUSED — confirm highlighted fields':'READY FOR REVIEW — no critical uncertainty detected';
+      document.getElementById('reply').innerText=a.suggested_reply;
+      status.textContent='Action Card and reply updated from your corrections.';
+    }
+    async function copyReply(button){
+      await navigator.clipboard.writeText(document.getElementById('reply').innerText);
+      button.textContent='Copied!';
+    }
+  </script>
+</body>
+</html>
