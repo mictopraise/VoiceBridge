@@ -1,0 +1,23 @@
+.venv/
+.test-venv/
+.qa-venv/
+__pycache__/
+*.py[cod]
+*.wav
+*.opus
+*.ogg
+*.mp3
+*.m4a
+*.aac
+.env
+.env.*
+!.env.example
+.voicebridge-cache/
+benchmark/private_audio/
+benchmark/afriswitch/audio/
+benchmark/sahara_owner_results/
+tmp/
+
+# Public-release safeguards
+benchmark/afriswitch/owner_pinned_manifest.jsonl
+benchmark/results/afriswitch_*/raw_results.jsonl
