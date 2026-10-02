@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VoiceBridge Field Testing</title>
+  <style>
+    :root { --ink:#0b1f3a; --blue:#1264e8; --pale:#eef5ff; --line:#d8e2f0; --ok:#147a4b; --bad:#b42318; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#f5f7fb; color:var(--ink); font-family:Arial,sans-serif; }
+    main { width:min(1100px,94%); margin:28px auto 60px; }
+    header, section { background:white; border:1px solid var(--line); border-radius:18px; padding:24px; margin-bottom:18px; }
+    h1,h2 { margin-top:0; }
+    .eyebrow { color:var(--blue); font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+    .notice { background:var(--pale); border-left:5px solid var(--blue); padding:14px; border-radius:8px; }
+    .success { background:#eaf8f1; color:var(--ok); padding:12px; border-radius:8px; }
+    .error { background:#fff0ee; color:var(--bad); padding:12px; border-radius:8px; }
+    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+    label { display:block; font-weight:700; }
+    input,select,textarea { width:100%; margin-top:7px; padding:11px; border:1px solid #aebed2; border-radius:8px; font:inherit; }
+    textarea { min-height:90px; resize:vertical; }
+    .check { display:flex; gap:10px; align-items:flex-start; padding-top:8px; }
+    .check input { width:auto; margin-top:3px; }
+    button,.button { display:inline-block; border:0; border-radius:9px; padding:12px 16px; background:var(--blue); color:white; font-weight:700; text-decoration:none; cursor:pointer; }
+    .button.secondary { background:var(--ink); }
+    .actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:18px; }
+    .cards { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+    .card { background:var(--pale); border-radius:10px; padding:14px; }
+    .card strong { display:block; font-size:1.45rem; }
+    table { border-collapse:collapse; width:100%; font-size:.92rem; }
+    th,td { text-align:left; border-bottom:1px solid var(--line); padding:9px 6px; vertical-align:top; }
+    .scroll { overflow-x:auto; }
+    .small { color:#52657e; font-size:.9rem; }
+    @media(max-width:720px) { .grid,.cards { grid-template-columns:1fr; } header,section { padding:18px; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">NAIC local validation</div>
+    <h1>VoiceBridge Field Testing</h1>
+    <p>Document genuine product interactions without collecting unnecessary personal information.</p>
+    <div class="notice"><strong>Privacy:</strong> Use a participant code only. Do not enter names, phone numbers, exact addresses, private consent documents, or links to raw recordings.</div>
+    <p><a href="/">← Return to VoiceBridge</a></p>
+  </header>
+
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  {% if saved %}<p class="success">Saved {{ saved }} locally.</p>{% endif %}
+
+  <section>
+    <h2>Log an interaction</h2>
+    <form method="post" autocomplete="off">
+      <div class="grid">
+        <label>Participant code
+          <input name="participant_code" placeholder="e.g. P-014" maxlength="40" required>
+        </label>
+        <label>Language or language mix
+          <select name="language_or_language_mix" required>
+            <option value="">Select…</option>
+            {% for value in ["Nigerian-accented English", "Yoruba", "Yoruba-English", "Pidgin-English", "Other"] %}<option>{{ value }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>Environment noise level
+          <select name="environment_noise_level" required><option value="">Select…</option><option>quiet</option><option>moderate</option><option>noisy</option></select>
+        </label>
+        <label>Use case
+          <input name="use_case" placeholder="e.g. delivery request" maxlength="120" required>
+        </label>
+        <label>Provider
+          <input name="provider" placeholder="e.g. NCAIR N-ATLAS" maxlength="100" required>
+        </label>
+        <label>Exact model
+          <input name="model" placeholder="e.g. NCAIR1/Yoruba-ASR" maxlength="180" required>
+        </label>
+        {% for name, label, values in [
+          ("asr_outcome", "ASR outcome", ["pass", "partial", "fail"]),
+          ("semantic_meaning_correct", "Semantic meaning correct", ["yes", "partial", "no"]),
+          ("critical_fields_correct", "Critical fields correct", ["yes", "partial", "no", "n/a"]),
+          ("correction_required", "Correction required", ["none", "minor", "major"]),
+          ("action_card_useful", "Action Card useful", ["yes", "partial", "no"]),
+          ("task_completion", "Task completion", ["completed", "not_completed"])
+        ] %}
+        <label>{{ label }}
+          <select name="{{ name }}" required><option value="">Select…</option>{% for value in values %}<option>{{ value }}</option>{% endfor %}</select>
+        </label>
+        {% endfor %}
+        <label>Short user feedback
+          <textarea name="short_user_feedback" maxlength="500" placeholder="Brief, non-identifying feedback"></textarea>
+        </label>
+        <label>Tester notes
+          <textarea name="tester_notes" maxlength="1000" placeholder="Do not include direct identifiers"></textarea>
+        </label>
+      </div>
+      <label class="check"><input type="checkbox" name="never_guess_triggered"> Never-Guess was triggered</label>
+      <label class="check"><input type="checkbox" name="consent_confirmed" required> Consent was confirmed for this interaction</label>
+      <button type="submit">Save local interaction</button>
+    </form>
+  </section>
+
+  <section>
+    <h2>Progress and private exports</h2>
+    <div class="cards">
+      <div class="card"><strong>{{ summary.total_interactions }}</strong>Total logged</div>
+      {% for language, target in summary.target_mix.items() %}
+      <div class="card"><strong>{{ summary.counts.language_or_language_mix.get(language|lower, 0) }}/{{ target }}</strong>{{ language }}</div>
+      {% endfor %}
+    </div>
+    <div class="actions">
+      <a class="button secondary" href="/field-testing/export.csv">Private CSV export</a>
+      <a class="button secondary" href="/field-testing/export.json">Private JSON export</a>
+      <a class="button" href="/field-testing/sanitized-summary.json">Sanitized NAIC summary</a>
+    </div>
+    <p class="small">CSV and full JSON contain participant codes, feedback and tester notes. Keep them private. The sanitized summary contains aggregate counts only.</p>
+  </section>
+
+  <section>
+    <h2>Aggregate counts</h2>
+    <div class="grid">
+      {% for field, counts in summary.counts.items() %}
+      <div>
+        <h3>{{ field.replace('_', ' ')|title }}</h3>
+        <table>{% for value, count in counts.items() %}<tr><td>{{ value }}</td><td>{{ count }}</td></tr>{% else %}<tr><td>No records yet</td><td>0</td></tr>{% endfor %}</table>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section>
+    <h2>Most recent local records</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>ID</th><th>Date/time</th><th>Language</th><th>Provider</th><th>ASR</th><th>Correction</th><th>Completed</th></tr></thead>
+      <tbody>{% for item in recent %}<tr><td>{{ item.interaction_id }}</td><td>{{ item.date_time }}</td><td>{{ item.language_or_language_mix }}</td><td>{{ item.provider }}</td><td>{{ item.asr_outcome }}</td><td>{{ item.correction_required }}</td><td>{{ item.task_completion }}</td></tr>{% else %}<tr><td colspan="7">No interactions logged.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+</main>
+</body>
+</html>

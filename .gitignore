@@ -24,6 +24,8 @@ benchmark/private_audio/
 benchmark/afriswitch/audio/
 benchmark/sahara_owner_results/
 tmp/
+local_data/field_testing/
+field_test_exports/
 
 # Public-release safeguards
 benchmark/afriswitch/owner_pinned_manifest.jsonl

@@ -6,10 +6,19 @@ import wave
 import av
 import numpy as np
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, redirect, render_template, request, url_for
 from faster_whisper import WhisperModel
 
 from action_engine import analyze_business_action
+from field_testing import (
+    FieldTestValidationError,
+    append_interaction,
+    export_csv,
+    export_json,
+    load_interactions,
+    sanitized_summary_json,
+    summarize,
+)
 from speech_engines import create_engine
 from speech_engines.base import EmptyTranscriptError, ProviderUnavailableError
 from speech_engines.natlas_engine import (
@@ -21,6 +30,10 @@ from speech_engines.whisper_engine import WhisperEngine
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
+app.config["FIELD_TEST_LOG_PATH"] = os.environ.get(
+    "VOICEBRIDGE_FIELD_TEST_LOG",
+    str(Path(__file__).parent / "local_data" / "field_testing" / "interactions.json"),
+)
 ALLOWED = {".opus", ".ogg", ".mp3", ".m4a", ".wav", ".webm", ".mp4"}
 WHISPER_LANGUAGES = {
     "auto": (None, "Automatically detected"),
@@ -190,6 +203,66 @@ def analyze_action_api():
             "english_user_corrected": english != raw_english,
         },
     })
+
+
+def _field_test_records():
+    return load_interactions(app.config["FIELD_TEST_LOG_PATH"])
+
+
+@app.route("/field-testing", methods=["GET", "POST"])
+def field_testing():
+    error = None
+    saved = request.args.get("saved")
+    if request.method == "POST":
+        try:
+            record = append_interaction(
+                app.config["FIELD_TEST_LOG_PATH"], request.form
+            )
+            return redirect(url_for("field_testing", saved=record["interaction_id"]))
+        except FieldTestValidationError as exc:
+            error = str(exc)
+    try:
+        records = _field_test_records()
+    except FieldTestValidationError as exc:
+        records = []
+        error = str(exc)
+    return render_template(
+        "field_testing.html",
+        error=error,
+        saved=saved,
+        summary=summarize(records),
+        recent=list(reversed(records[-10:])),
+    )
+
+
+@app.get("/field-testing/export.csv")
+def field_testing_csv():
+    return Response(
+        export_csv(_field_test_records()),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=voicebridge-field-tests.csv"},
+    )
+
+
+@app.get("/field-testing/export.json")
+def field_testing_json():
+    return Response(
+        export_json(_field_test_records()),
+        mimetype="application/json",
+        headers={"Content-Disposition": "attachment; filename=voicebridge-field-tests.json"},
+    )
+
+
+@app.get("/field-testing/sanitized-summary.json")
+def field_testing_sanitized_summary():
+    return Response(
+        sanitized_summary_json(_field_test_records()),
+        mimetype="application/json",
+        headers={
+            "Content-Disposition":
+                "attachment; filename=voicebridge-field-test-summary-sanitized.json"
+        },
+    )
 
 
 @app.route("/", methods=["GET", "POST"])
