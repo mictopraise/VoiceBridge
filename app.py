@@ -10,18 +10,32 @@ from flask import Flask, jsonify, render_template, request
 from faster_whisper import WhisperModel
 
 from action_engine import analyze_business_action
+from speech_engines import create_engine
+from speech_engines.base import EmptyTranscriptError, ProviderUnavailableError
+from speech_engines.natlas_engine import (
+    NAtlasAudioTooLongError,
+    NAtlasLanguageError,
+)
 from speech_engines.whisper_engine import WhisperEngine
 
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
 ALLOWED = {".opus", ".ogg", ".mp3", ".m4a", ".wav", ".webm", ".mp4"}
-LANGUAGES = {
+WHISPER_LANGUAGES = {
     "auto": (None, "Automatically detected"),
     "ha": ("ha", "Hausa"),
     "yo": ("yo", "Yoruba"),
     "ig": ("ig", "Igbo"),
     "en": ("en", "English / Nigerian Pidgin"),
+}
+NATLAS_LANGUAGES = {
+    "yo": ("yo", "Yoruba"),
+    "en-NG": ("en-NG", "Nigerian-accented English"),
+}
+PROVIDERS = {
+    "natlas": "N-ATLAS — Official Nigerian-language ASR",
+    "whisper": "Whisper — Local explicit alternative",
 }
 MODELS = {
     "small": "Small — faster",
@@ -29,6 +43,7 @@ MODELS = {
     "large-v3": "Large v3 — best accuracy (slow on CPU)",
 }
 _models = {}
+_provider_engines = {}
 
 
 def get_model(model_size):
@@ -95,6 +110,19 @@ def run_whisper(path, task, language=None, model_size="small"):
     )
 
 
+def get_natlas_engine():
+    if "natlas" not in _provider_engines:
+        _provider_engines["natlas"] = create_engine("natlas")
+    return _provider_engines["natlas"]
+
+
+def run_natlas(path, language):
+    """Return the normalized official N-ATLAS result without fallback."""
+    return get_natlas_engine().transcribe(
+        path, language=language, task="transcribe"
+    )
+
+
 def confidence_message(confidence, language_probability, forced_language):
     if confidence < 45:
         return "Low confidence: please listen and correct the transcript before using it."
@@ -152,23 +180,55 @@ def analyze_action_api():
         asr_language=payload.get("language"),
         asr_confidence=payload.get("confidence"),
     )
-    return jsonify({"action": action})
+    raw_transcript = str(payload.get("raw_transcript", transcript)).strip()
+    raw_english = str(payload.get("raw_english", english)).strip()
+    return jsonify({
+        "action": action,
+        "correction_provenance": {
+            "raw_provider_transcript_preserved": raw_transcript,
+            "transcript_user_corrected": transcript != raw_transcript,
+            "english_user_corrected": english != raw_english,
+        },
+    })
 
 
 @app.route("/", methods=["GET", "POST"])
 def index():
     result = None
     error = None
+    natlas_failed = False
+    submitted_provider = request.form.get("provider", "natlas")
+    unsupported_provider = submitted_provider not in PROVIDERS
+    provider_choice = submitted_provider
+    if unsupported_provider:
+        provider_choice = "natlas"
+    language_catalog = (
+        NATLAS_LANGUAGES if provider_choice == "natlas" else WHISPER_LANGUAGES
+    )
+    default_language = "yo" if provider_choice == "natlas" else "auto"
+    submitted_language = request.form.get("language", default_language)
+    unsupported_language = submitted_language not in language_catalog
+    language_choice = submitted_language
+    if unsupported_language:
+        language_choice = default_language
     if request.method == "POST":
-        language_choice = request.form.get("language", "auto")
-        if language_choice not in LANGUAGES:
-            language_choice = "auto"
-        forced_language, selected_label = LANGUAGES[language_choice]
+        forced_language, selected_label = language_catalog[language_choice]
         model_size = request.form.get("model_size", "small")
         if model_size not in MODELS:
             model_size = "small"
         upload = request.files.get("audio")
-        if not upload or not upload.filename:
+        if unsupported_provider:
+            error = (
+                "That speech provider is not supported. No provider was selected or run "
+                "automatically."
+            )
+        elif unsupported_language:
+            natlas_failed = provider_choice == "natlas"
+            error = (
+                "That language is not supported by the selected provider. "
+                "N-ATLAS currently exposes Yoruba and Nigerian-accented English only."
+            )
+        elif not upload or not upload.filename:
             error = "Please choose a WhatsApp voice note or audio file."
         else:
             suffix = Path(upload.filename).suffix.lower()
@@ -182,39 +242,106 @@ def index():
                         upload.save(tmp)
                         temp_path = tmp.name
                     processed_path = preprocess_audio(temp_path)
-                    transcript, detected, confidence, language_probability = run_whisper(
-                        processed_path, "transcribe", forced_language, model_size
-                    )
-                    english, _, translation_confidence, _ = run_whisper(
-                        processed_path, "translate", forced_language or detected, model_size
-                    )
-                    if not transcript:
-                        raise ValueError("No clear speech was detected.")
-                    result = {
-                        "language": selected_label if forced_language else detected.upper(),
-                        "language_code": forced_language or detected,
-                        "transcript": transcript,
-                        "english": english,
-                        "confidence": min(confidence, translation_confidence),
-                        "confidence_message": confidence_message(
-                            min(confidence, translation_confidence),
-                            language_probability,
-                            forced_language,
-                        ),
-                    }
+                    if provider_choice == "natlas":
+                        asr = run_natlas(processed_path, forced_language)
+                        raw_transcript = asr.transcript
+                        english = ""
+                        translation_provider = "Not generated"
+                        if forced_language == "yo":
+                            try:
+                                english, _, _, _ = run_whisper(
+                                    processed_path, "translate", "yo", model_size
+                                )
+                                translation_provider = "Local Whisper translation"
+                            except Exception:
+                                english = ""
+                        elif forced_language == "en-NG":
+                            english = raw_transcript
+                            translation_provider = "Not generated — source is English"
+                        result = {
+                            "provider": "natlas",
+                            "speech_provider": "NCAIR N-ATLAS",
+                            "model": asr.model,
+                            "language": selected_label,
+                            "language_code": forced_language,
+                            "language_source": "Explicit user selection",
+                            "raw_transcript": raw_transcript,
+                            "transcript": raw_transcript,
+                            "raw_english": english,
+                            "english": english,
+                            "translation_provider": translation_provider,
+                            "transcript_user_corrected": False,
+                            "confidence": None,
+                            "confidence_message": (
+                                "Provider confidence is not supplied. VoiceBridge will require "
+                                "confirmation for critical business fields."
+                            ),
+                            "fallback_status": "None",
+                            "translation_by_natlas": False,
+                        }
+                    else:
+                        transcript, detected, confidence, language_probability = run_whisper(
+                            processed_path, "transcribe", forced_language, model_size
+                        )
+                        english, _, translation_confidence, _ = run_whisper(
+                            processed_path, "translate", forced_language or detected, model_size
+                        )
+                        if not transcript:
+                            raise ValueError("No clear speech was detected.")
+                        combined_confidence = min(confidence, translation_confidence)
+                        result = {
+                            "provider": "whisper",
+                            "speech_provider": "Local Whisper",
+                            "model": model_size,
+                            "language": selected_label if forced_language else detected.upper(),
+                            "language_code": forced_language or detected,
+                            "language_source": (
+                                "Explicit user selection" if forced_language else "Automatic detection"
+                            ),
+                            "raw_transcript": transcript,
+                            "transcript": transcript,
+                            "raw_english": english,
+                            "english": english,
+                            "translation_provider": "Local Whisper translation",
+                            "transcript_user_corrected": False,
+                            "confidence": combined_confidence,
+                            "confidence_message": confidence_message(
+                                combined_confidence, language_probability, forced_language
+                            ),
+                            "fallback_status": "None — explicitly selected provider",
+                            "translation_by_natlas": False,
+                        }
                     result["action"] = analyze_business_action(
-                        transcript=transcript,
-                        english=english,
-                        asr_language=forced_language or detected,
+                        transcript=result["raw_transcript"],
+                        english=result["english"],
+                        asr_language=result["language_code"],
                         asr_confidence=result["confidence"],
                     )
                     result["reply"] = (
                         result["action"]["suggested_reply"]
-                        if result["confidence"] >= 45
+                        if result["confidence"] is None or result["confidence"] >= 45
                         else None
                     )
+                except NAtlasAudioTooLongError:
+                    natlas_failed = True
+                    error = (
+                        "N-ATLAS currently supports recordings up to 30 seconds in this build. "
+                        "Please upload a shorter clip or explicitly choose local Whisper."
+                    )
+                except (NAtlasLanguageError, ProviderUnavailableError, EmptyTranscriptError):
+                    natlas_failed = provider_choice == "natlas"
+                    error = (
+                        "N-ATLAS could not process this recording. No fallback was performed."
+                        if natlas_failed else
+                        "The selected speech provider could not process this recording."
+                    )
                 except Exception as exc:
-                    error = f"The voice note could not be processed: {exc}"
+                    natlas_failed = provider_choice == "natlas"
+                    error = (
+                        "N-ATLAS could not process this recording. No fallback was performed."
+                        if natlas_failed else
+                        f"The voice note could not be processed: {exc}"
+                    )
                 finally:
                     if temp_path and os.path.exists(temp_path):
                         os.unlink(temp_path)
@@ -222,8 +349,11 @@ def index():
                         os.unlink(processed_path)
     return render_template(
         "index.html", result=result, error=error,
-        languages=LANGUAGES, selected=request.form.get("language", "auto"),
-        models=MODELS, selected_model=request.form.get("model_size", "small")
+        providers=PROVIDERS, selected_provider=provider_choice,
+        languages=language_catalog, selected=language_choice,
+        whisper_languages=WHISPER_LANGUAGES, natlas_languages=NATLAS_LANGUAGES,
+        models=MODELS, selected_model=request.form.get("model_size", "small"),
+        natlas_failed=natlas_failed,
     )
 
 

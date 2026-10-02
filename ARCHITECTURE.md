@@ -1,13 +1,13 @@
 # VoiceBridge Architecture
 
-VoiceBridge separates speech recognition from the business-action system. Sahara and Whisper produce normalized transcript data; neither engine owns downstream business decisions.
+VoiceBridge separates speech recognition from the business-action system. N-ATLAS, Sahara and Whisper produce normalized transcript data; no speech engine owns downstream business decisions.
 
 ```mermaid
 flowchart TD
     A[Voice input] --> B[ASR provider layer]
-    B --> C[Sahara adapter - M3]
-    B --> D[Local Whisper]
-    B --> E[Whisper Small comparison]
+    B --> C[N-ATLAS official local models]
+    B --> D[Sahara adapter]
+    B --> E[Local Whisper]
     C --> F[Normalized ASR result]
     D --> F
     E --> F
@@ -36,3 +36,14 @@ interchangeable. Future providers must preserve three separate provenance
 stages: the ASR provider transcript, the component responsible for any English
 meaning/translation, and text corrected by the user. A provider must never be
 credited with translation it did not perform.
+
+## NAIC application integration
+
+The NAIC build defaults to explicitly selected N-ATLAS transcription. Only the
+implemented Yoruba and Nigerian-accented English model mappings are exposed.
+Whisper remains a separate explicit choice and is never invoked as an automatic
+ASR fallback. A Yoruba N-ATLAS run may use a separately labelled local Whisper
+translation pass; the immutable raw N-ATLAS transcript is retained alongside
+the editable working transcript and English meaning. Provider failures and the
+30-second N-ATLAS limit remain visible to the user rather than triggering
+silent rerouting, truncation or chunking.
