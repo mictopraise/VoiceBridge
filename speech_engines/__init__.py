@@ -11,6 +11,9 @@ def create_engine(name: str, *, model: str = "large-v3"):
     if normalized == "sahara":
         from .sahara_engine import SaharaEngine
         return SaharaEngine()
+    if normalized in {"natlas", "n-atlas"}:
+        from .natlas_engine import NAtlasEngine
+        return NAtlasEngine()
     if normalized == "model3":
         from .model3_engine import Model3Engine
         return Model3Engine()
@@ -24,6 +27,9 @@ def __getattr__(name: str):
     if name == "SaharaEngine":
         from .sahara_engine import SaharaEngine
         return SaharaEngine
+    if name == "NAtlasEngine":
+        from .natlas_engine import NAtlasEngine
+        return NAtlasEngine
     if name == "Model3Engine":
         from .model3_engine import Model3Engine
         return Model3Engine
@@ -32,6 +38,6 @@ def __getattr__(name: str):
 
 __all__ = [
     "ASRResult", "EmptyTranscriptError", "ProviderUnavailableError",
-    "SpeechEngineError", "WhisperEngine", "SaharaEngine", "Model3Engine",
+    "SpeechEngineError", "WhisperEngine", "SaharaEngine", "NAtlasEngine", "Model3Engine",
     "create_engine",
 ]

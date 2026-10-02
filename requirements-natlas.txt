@@ -1,0 +1,7 @@
+-r requirements.txt
+
+# N-ATLAS is an optional local runtime. Use the official PyTorch CPU index so
+# CPU deployments do not accidentally install multi-gigabyte CUDA packages.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.4.1+cpu
+transformers>=4.45.0,<5
