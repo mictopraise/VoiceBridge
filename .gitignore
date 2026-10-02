@@ -19,6 +19,7 @@ models/natlas/
 *.safetensors
 huggingface/
 model_cache/
+benchmark/naic/live_acceptance/*.json
 benchmark/private_audio/
 benchmark/afriswitch/audio/
 benchmark/sahara_owner_results/

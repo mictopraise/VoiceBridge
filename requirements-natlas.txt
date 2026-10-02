@@ -5,3 +5,4 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.4.1+cpu
 transformers>=4.45.0,<5
+psutil>=6.0.0,<8

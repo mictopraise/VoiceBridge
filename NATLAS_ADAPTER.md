@@ -45,3 +45,16 @@ The optional file uses the official PyTorch CPU wheel index to avoid an
 accidental multi-gigabyte CUDA installation on CPU systems. Hugging Face access
 must be configured locally under the official repository terms. Tokens and
 downloaded model files must never be committed.
+
+## Controlled Yoruba acceptance test
+
+After authenticating with Hugging Face locally and accepting the official model
+terms, run the repository-owned acceptance command from the project root:
+
+```text
+python -m scripts.run_natlas_acceptance --audio "C:\path\to\short-yoruba.wav"
+```
+
+The runner calls `NAtlasEngine`; it does not invoke a standalone ASR path. It
+writes a redacted local JSON record under `benchmark/naic/live_acceptance/`,
+which is excluded from Git by default. It never accepts or prints a token.
