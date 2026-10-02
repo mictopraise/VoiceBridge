@@ -27,3 +27,12 @@ flowchart TD
 ## Current boundary
 
 M1 uses deterministic, inspectable extraction rules, while M2 attaches provider-independent safety states to critical fields. M2.5 makes the transcript contract and evaluation harness provider-neutral. Product fallback and benchmark execution are deliberately separate: product mode may offer Whisper when a connected provider is unavailable, but benchmark mode records the requested provider as failed and never substitutes another engine. M2.9 adds content-addressed result caching so successful remote calls cannot be repeated accidentally. M3 integrates Sahara behind the existing interface without changing the action schema or inventing provider fields. M3.1 compares Sahara, Large-v3 and Small on one frozen AfriSwitch subset and preserves terminal provider failure in the denominator.
+
+## Text provenance
+
+The current product path performs two distinct faster-whisper passes: a
+transcription pass and a second English-translation pass. These outputs are not
+interchangeable. Future providers must preserve three separate provenance
+stages: the ASR provider transcript, the component responsible for any English
+meaning/translation, and text corrected by the user. A provider must never be
+credited with translation it did not perform.
