@@ -46,6 +46,11 @@ accidental multi-gigabyte CUDA installation on CPU systems. Hugging Face access
 must be configured locally under the official repository terms. Tokens and
 downloaded model files must never be committed.
 
+The live Yoruba acceptance test established `torch==2.6.0+cpu` as the compatible
+CPU runtime for the installed Transformers range. PyTorch 2.4.1 failed the
+current Transformers security/runtime check and is intentionally not supported
+by this build; the check is not bypassed or weakened.
+
 ## Controlled Yoruba acceptance test
 
 After authenticating with Hugging Face locally and accepting the official model

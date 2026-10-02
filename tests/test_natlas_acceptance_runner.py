@@ -18,6 +18,13 @@ class FakePipeline:
 
 
 class NAtlasAcceptanceRunnerTests(unittest.TestCase):
+    def test_verified_cpu_runtime_is_pinned(self):
+        requirements = (
+            Path(__file__).resolve().parents[1] / "requirements-natlas.txt"
+        ).read_text(encoding="utf-8")
+        self.assertIn("torch==2.6.0+cpu", requirements)
+        self.assertNotIn("torch==2.4.1+cpu", requirements)
+
     def test_runner_uses_natlas_result_and_records_safe_provenance(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
