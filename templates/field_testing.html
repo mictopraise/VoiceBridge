@@ -1,137 +1,31 @@
 <!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>VoiceBridge Field Testing</title>
-  <style>
-    :root { --ink:#0b1f3a; --blue:#1264e8; --pale:#eef5ff; --line:#d8e2f0; --ok:#147a4b; --bad:#b42318; }
-    * { box-sizing:border-box; }
-    body { margin:0; background:#f5f7fb; color:var(--ink); font-family:Arial,sans-serif; }
-    main { width:min(1100px,94%); margin:28px auto 60px; }
-    header, section { background:white; border:1px solid var(--line); border-radius:18px; padding:24px; margin-bottom:18px; }
-    h1,h2 { margin-top:0; }
-    .eyebrow { color:var(--blue); font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
-    .notice { background:var(--pale); border-left:5px solid var(--blue); padding:14px; border-radius:8px; }
-    .success { background:#eaf8f1; color:var(--ok); padding:12px; border-radius:8px; }
-    .error { background:#fff0ee; color:var(--bad); padding:12px; border-radius:8px; }
-    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
-    label { display:block; font-weight:700; }
-    input,select,textarea { width:100%; margin-top:7px; padding:11px; border:1px solid #aebed2; border-radius:8px; font:inherit; }
-    textarea { min-height:90px; resize:vertical; }
-    .check { display:flex; gap:10px; align-items:flex-start; padding-top:8px; }
-    .check input { width:auto; margin-top:3px; }
-    button,.button { display:inline-block; border:0; border-radius:9px; padding:12px 16px; background:var(--blue); color:white; font-weight:700; text-decoration:none; cursor:pointer; }
-    .button.secondary { background:var(--ink); }
-    .actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:18px; }
-    .cards { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
-    .card { background:var(--pale); border-radius:10px; padding:14px; }
-    .card strong { display:block; font-size:1.45rem; }
-    table { border-collapse:collapse; width:100%; font-size:.92rem; }
-    th,td { text-align:left; border-bottom:1px solid var(--line); padding:9px 6px; vertical-align:top; }
-    .scroll { overflow-x:auto; }
-    .small { color:#52657e; font-size:.9rem; }
-    @media(max-width:720px) { .grid,.cards { grid-template-columns:1fr; } header,section { padding:18px; } }
-  </style>
-</head>
-<body>
-<main>
-  <header>
-    <div class="eyebrow">NAIC local validation</div>
-    <h1>VoiceBridge Field Testing</h1>
-    <p>Document genuine product interactions without collecting unnecessary personal information.</p>
-    <div class="notice"><strong>Privacy:</strong> Use a participant code only. Do not enter names, phone numbers, exact addresses, private consent documents, or links to raw recordings.</div>
-    <p><a href="/">← Return to VoiceBridge</a></p>
-  </header>
-
-  {% if error %}<p class="error">{{ error }}</p>{% endif %}
-  {% if saved %}<p class="success">Saved {{ saved }} locally.</p>{% endif %}
-
-  <section>
-    <h2>Log an interaction</h2>
-    <form method="post" autocomplete="off">
-      <div class="grid">
-        <label>Participant code
-          <input name="participant_code" placeholder="e.g. P-014" maxlength="40" required>
-        </label>
-        <label>Language or language mix
-          <select name="language_or_language_mix" required>
-            <option value="">Select…</option>
-            {% for value in ["Nigerian-accented English", "Yoruba", "Yoruba-English", "Pidgin-English", "Other"] %}<option>{{ value }}</option>{% endfor %}
-          </select>
-        </label>
-        <label>Environment noise level
-          <select name="environment_noise_level" required><option value="">Select…</option><option>quiet</option><option>moderate</option><option>noisy</option></select>
-        </label>
-        <label>Use case
-          <input name="use_case" placeholder="e.g. delivery request" maxlength="120" required>
-        </label>
-        <label>Provider
-          <input name="provider" placeholder="e.g. NCAIR N-ATLAS" maxlength="100" required>
-        </label>
-        <label>Exact model
-          <input name="model" placeholder="e.g. NCAIR1/Yoruba-ASR" maxlength="180" required>
-        </label>
-        {% for name, label, values in [
-          ("asr_outcome", "ASR outcome", ["pass", "partial", "fail"]),
-          ("semantic_meaning_correct", "Semantic meaning correct", ["yes", "partial", "no"]),
-          ("critical_fields_correct", "Critical fields correct", ["yes", "partial", "no", "n/a"]),
-          ("correction_required", "Correction required", ["none", "minor", "major"]),
-          ("action_card_useful", "Action Card useful", ["yes", "partial", "no"]),
-          ("task_completion", "Task completion", ["completed", "not_completed"])
-        ] %}
-        <label>{{ label }}
-          <select name="{{ name }}" required><option value="">Select…</option>{% for value in values %}<option>{{ value }}</option>{% endfor %}</select>
-        </label>
-        {% endfor %}
-        <label>Short user feedback
-          <textarea name="short_user_feedback" maxlength="500" placeholder="Brief, non-identifying feedback"></textarea>
-        </label>
-        <label>Tester notes
-          <textarea name="tester_notes" maxlength="1000" placeholder="Do not include direct identifiers"></textarea>
-        </label>
-      </div>
-      <label class="check"><input type="checkbox" name="never_guess_triggered"> Never-Guess was triggered</label>
-      <label class="check"><input type="checkbox" name="consent_confirmed" required> Consent was confirmed for this interaction</label>
-      <button type="submit">Save local interaction</button>
-    </form>
-  </section>
-
-  <section>
-    <h2>Progress and private exports</h2>
-    <div class="cards">
-      <div class="card"><strong>{{ summary.total_interactions }}</strong>Total logged</div>
-      {% for language, target in summary.target_mix.items() %}
-      <div class="card"><strong>{{ summary.counts.language_or_language_mix.get(language|lower, 0) }}/{{ target }}</strong>{{ language }}</div>
-      {% endfor %}
-    </div>
-    <div class="actions">
-      <a class="button secondary" href="/field-testing/export.csv">Private CSV export</a>
-      <a class="button secondary" href="/field-testing/export.json">Private JSON export</a>
-      <a class="button" href="/field-testing/sanitized-summary.json">Sanitized NAIC summary</a>
-    </div>
-    <p class="small">CSV and full JSON contain participant codes, feedback and tester notes. Keep them private. The sanitized summary contains aggregate counts only.</p>
-  </section>
-
-  <section>
-    <h2>Aggregate counts</h2>
-    <div class="grid">
-      {% for field, counts in summary.counts.items() %}
-      <div>
-        <h3>{{ field.replace('_', ' ')|title }}</h3>
-        <table>{% for value, count in counts.items() %}<tr><td>{{ value }}</td><td>{{ count }}</td></tr>{% else %}<tr><td>No records yet</td><td>0</td></tr>{% endfor %}</table>
-      </div>
-      {% endfor %}
-    </div>
-  </section>
-
-  <section>
-    <h2>Most recent local records</h2>
-    <div class="scroll"><table>
-      <thead><tr><th>ID</th><th>Date/time</th><th>Language</th><th>Provider</th><th>ASR</th><th>Correction</th><th>Completed</th></tr></thead>
-      <tbody>{% for item in recent %}<tr><td>{{ item.interaction_id }}</td><td>{{ item.date_time }}</td><td>{{ item.language_or_language_mix }}</td><td>{{ item.provider }}</td><td>{{ item.asr_outcome }}</td><td>{{ item.correction_required }}</td><td>{{ item.task_completion }}</td></tr>{% else %}<tr><td colspan="7">No interactions logged.</td></tr>{% endfor %}</tbody>
-    </table></div>
-  </section>
-</main>
-</body>
-</html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VoiceBridge Field Testing</title>
+<style>
+:root{--ink:#0b1f3a;--blue:#1264e8;--pale:#eef5ff;--line:#d8e2f0;--ok:#147a4b;--bad:#b42318}*{box-sizing:border-box}body{margin:0;background:#f5f7fb;color:var(--ink);font-family:Arial,sans-serif}main{width:min(1100px,94%);margin:28px auto 60px}header,section{background:#fff;border:1px solid var(--line);border-radius:18px;padding:24px;margin-bottom:18px}h1,h2{margin-top:0}.eyebrow{color:var(--blue);font-weight:700;letter-spacing:.08em;text-transform:uppercase}.notice{background:var(--pale);border-left:5px solid var(--blue);padding:14px;border-radius:8px}.warning{background:#fff4d8;border-left-color:#e9a800}.success{background:#eaf8f1;color:var(--ok);padding:12px;border-radius:8px}.error{background:#fff0ee;color:var(--bad);padding:12px;border-radius:8px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}label{display:block;font-weight:700}input,select,textarea{width:100%;margin-top:7px;padding:11px;border:1px solid #aebed2;border-radius:8px;font:inherit}textarea{min-height:90px;resize:vertical}.check{display:flex;gap:10px;align-items:flex-start;padding-top:8px}.check input{width:auto;margin-top:3px}button,.button{display:inline-block;border:0;border-radius:9px;padding:12px 16px;background:var(--blue);color:#fff;font-weight:700;text-decoration:none;cursor:pointer}.button.secondary{background:var(--ink)}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.card{background:var(--pale);border-radius:10px;padding:14px}.card strong{display:block;font-size:1.45rem}.system{background:#f6f8fb;border:1px solid var(--line);padding:14px;border-radius:10px}.system strong{display:block;font-size:.72rem;text-transform:uppercase;color:#63748b;margin-bottom:4px}.transcript{white-space:pre-wrap;line-height:1.5;max-height:220px;overflow:auto}.definition{color:#52657e;font-size:.86rem;font-weight:400;line-height:1.4;margin-top:5px}table{border-collapse:collapse;width:100%;font-size:.92rem}th,td{text-align:left;border-bottom:1px solid var(--line);padding:9px 6px;vertical-align:top}.scroll{overflow-x:auto}.small{color:#52657e;font-size:.9rem}.meter{height:12px;background:#dfe7f3;border-radius:99px;overflow:hidden}.meter span{display:block;height:100%;background:var(--blue)}@media(max-width:720px){.grid,.cards{grid-template-columns:1fr}header,section{padding:18px}}
+</style></head><body><main>
+<header><div class="eyebrow">NAIC local validation</div><h1>VoiceBridge Field Testing</h1><p>Review a real interaction, score it manually, and save it without retyping system-generated details.</p><div class="notice"><strong>Privacy:</strong> Use participant codes only. Do not enter names, phone numbers, exact addresses, consent documents or raw-audio links.</div><p><a href="/">← Return to inference</a></p></header>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}{% if saved %}<p class="success">Saved genuine interaction {{ saved }}. <a href="/">Process the next recording</a>.</p>{% endif %}{% if updated %}<p class="success">Added an auditable evaluation to {{ updated }} without increasing the genuine-interaction count.</p>{% endif %}
+{% if duplicate %}<div class="notice warning"><strong>Existing recording:</strong> This audio is already linked to {{ duplicate.interaction_id }} with {{ duplicate.evaluation_count or 1 }} evaluation(s). Choose provider comparison or intentional retest; saving it as new is blocked.</div>{% endif %}
+<section><h2>{{ 'Review processed interaction' if draft else 'Manual interaction entry' }}</h2>
+{% if draft %}<div class="grid">
+<div class="system"><strong>Audio filename</strong>{{ draft.audio_filename }}</div><div class="system"><strong>Audio code</strong>{{ draft.audio_code or 'No validated VB code in filename' }}</div><div class="system"><strong>Provider</strong>{{ draft.provider }}</div><div class="system"><strong>Exact model</strong>{{ draft.model }}</div><div class="system"><strong>Selected language</strong>{{ draft.selected_language }}</div><div class="system"><strong>Language source</strong>{{ draft.selected_language_source }}</div><div class="system"><strong>Processing outcome</strong>{{ draft.processing_status }}</div><div class="system"><strong>Never-Guess signal</strong>{{ 'Triggered' if draft.action.needs_confirmation else 'Not triggered' }}</div></div>
+<h3>Original provider transcript — immutable</h3><div class="system transcript">{{ draft.raw_provider_transcript }}</div><h3>Edited working transcript</h3><div class="system transcript">{{ draft.working_transcript }}</div><h3>Current English meaning</h3><div class="system transcript">{{ draft.english_meaning or 'Not generated' }}</div><h3>Current Action Card output</h3><div class="grid"><div class="system"><strong>Intent</strong>{{ draft.action.intent }}</div><div class="system"><strong>Required action</strong>{{ draft.action.required_action }}</div><div class="system"><strong>Missing information</strong>{{ draft.action.missing_information|join(', ') if draft.action.missing_information else 'None detected' }}</div><div class="system"><strong>Confirmation</strong>{{ 'Required' if draft.action.needs_confirmation else 'Not required by current output' }}</div></div>{% endif %}
+<form method="post" autocomplete="off"><input type="hidden" name="draft_token" value="{{ draft_token }}"><div class="grid">
+{% if not draft %}<label>Audio filename<input name="audio_filename" maxlength="240"></label><label>Audio code<input name="audio_code" placeholder="VB-001" maxlength="20"></label><label>Provider<input name="provider" required maxlength="100"></label><label>Exact model<input name="model" required maxlength="180"></label><label>Selected language<input name="selected_language" maxlength="80"></label><label>Language-selection source<input name="selected_language_source" maxlength="80"></label>{% endif %}
+<label>Participant code<input name="participant_code" placeholder="e.g. P-014" maxlength="40" required></label>
+<label>Actual language or language mix<select name="language_or_language_mix" required><option value="">Verify—do not infer from model selection</option>{% for value in ["Nigerian-accented English","Yoruba","Yoruba-English","Pidgin-English","Other"] %}<option>{{ value }}</option>{% endfor %}</select></label>
+<label>Environment noise level<select name="environment_noise_level" required><option value="">Select…</option><option>quiet</option><option>moderate</option><option>noisy</option></select></label>
+<label>Use case<input name="use_case" value="{{ draft.action.intent|replace('_',' ')|title if draft else '' }}" maxlength="120" required></label>
+<label>Evaluation type<select name="evaluation_mode" required><option value="">Select deliberately…</option><option value="new" {% if draft and not duplicate %}selected{% endif %}>New genuine interaction</option><option value="comparison">Additional provider/model comparison</option><option value="retest">Intentional retest of same provider/model</option></select><div class="definition">Comparisons and retests stay attached to the original interaction and do not increase the count toward 50.</div></label>
+<label>ASR outcome<select name="asr_outcome" required><option value="">Human review required</option><option>pass</option><option>partial</option><option>fail</option></select><div class="definition"><b>Pass:</b> usable without meaning-changing errors. <b>Partial:</b> useful but corrections needed. <b>Fail:</b> core meaning unusable.</div></label>
+<label>Semantic meaning correct<select name="semantic_meaning_correct" required><option value="">Human review required</option><option>yes</option><option>partial</option><option>no</option></select><div class="definition"><b>Yes:</b> intended meaning preserved. <b>Partial:</b> main idea survives with gaps. <b>No:</b> meaning changed or lost.</div></label>
+<label>Critical fields correct<select name="critical_fields_correct" required><option value="">Human review required</option><option>yes</option><option>partial</option><option>no</option><option>n/a</option></select><div class="definition">Check amounts, quantities, locations, dates/times, references and payment status.</div></label>
+<label>Correction required<select name="correction_required" required><option value="">Human review required</option><option>none</option><option>minor</option><option>major</option></select><div class="definition"><b>Minor:</b> spelling/detail cleanup. <b>Major:</b> meaning or business action needed repair.</div></label>
+<label>Action Card useful<select name="action_card_useful" required><option value="">Human review required</option><option>yes</option><option>partial</option><option>no</option></select></label><label>Task completion<select name="task_completion" required><option value="">Human review required</option><option>completed</option><option>not_completed</option></select></label>
+<label>Human reference meaning<textarea name="human_reference_meaning" maxlength="1500" placeholder="Your verified meaning; this never overwrites the provider transcript"></textarea></label><label>Verified critical business information<textarea name="verified_critical_information" maxlength="1500" placeholder="Only anonymized facts needed for evaluation"></textarea></label><label>Short user feedback<textarea name="short_user_feedback" maxlength="500" placeholder="Brief, non-identifying feedback"></textarea></label><label>Tester notes<textarea name="tester_notes" maxlength="1000" placeholder="Do not include direct identifiers"></textarea></label></div>
+<label class="check"><input type="checkbox" name="never_guess_triggered" {% if draft and draft.action.needs_confirmation %}checked{% endif %}> Never-Guess was triggered</label>{% if draft %}<label class="check"><input type="checkbox" name="store_transcripts"> Explicitly retain transcript copies in the private JSON log (normally leave unchecked)</label>{% endif %}<label class="check"><input type="checkbox" name="consent_confirmed" required> Consent was confirmed for this genuine interaction</label><button type="submit">Save reviewed field test</button></form></section>
+<section><h2>Progress toward 50</h2><div class="cards"><div class="card"><strong>{{ summary.processed_recordings }}</strong>Distinct recordings processed</div><div class="card"><strong>{{ summary.saved_genuine_interactions }}</strong>Reviewed genuine interactions</div><div class="card"><strong>{{ summary.total_evaluations }}</strong>Total model evaluations</div><div class="card"><strong>{{ summary.target }}</strong>NAIC target</div></div><p><b>{{ summary.saved_genuine_interactions }}/{{ summary.target }} saved</b></p><div class="meter"><span style="width:{{ [summary.saved_genuine_interactions * 2, 100]|min }}%"></span></div>
+<div class="grid"><div><h3>ASR outcome</h3><table>{% for value,count in summary.counts.asr_outcome.items() %}<tr><td>{{ value }}</td><td>{{ count }}</td></tr>{% else %}<tr><td>No reviewed interactions</td><td>0</td></tr>{% endfor %}</table></div><div><h3>Language mix</h3><table>{% for value,count in summary.counts.language_or_language_mix.items() %}<tr><td>{{ value }}</td><td>{{ count }}</td></tr>{% else %}<tr><td>No reviewed interactions</td><td>0</td></tr>{% endfor %}</table></div></div>
+<div class="actions"><a class="button" href="/">Next Recording</a><a class="button secondary" href="/field-testing/export.csv">Private CSV</a><a class="button secondary" href="/field-testing/export.json">Private JSON</a><a class="button secondary" href="/field-testing/recording-manifest.csv">Recording manifest</a><a class="button" href="/field-testing/sanitized-summary.json">Sanitized NAIC summary</a></div><p class="small">The recording manifest is a non-destructive export keyed by validated audio code or audio hash. It can be reconciled with an owner CSV without hardcoding a Windows path.</p></section>
+<section><h2>Most recent genuine interactions</h2><div class="scroll"><table><thead><tr><th>Interaction ID</th><th>Audio code</th><th>Date/time</th><th>Language</th><th>Provider</th><th>ASR</th><th>Evaluations</th></tr></thead><tbody>{% for item in recent %}<tr><td>{{ item.interaction_id }}</td><td>{{ item.audio_code or '—' }}</td><td>{{ item.date_time }}</td><td>{{ item.language_or_language_mix }}</td><td>{{ item.provider }}</td><td>{{ item.asr_outcome }}</td><td>{{ item.evaluation_count or 1 }}</td></tr>{% else %}<tr><td colspan="7">No interactions logged.</td></tr>{% endfor %}</tbody></table></div></section>
+</main></body></html>

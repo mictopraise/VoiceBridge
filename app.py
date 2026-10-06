@@ -12,13 +12,20 @@ from faster_whisper import WhisperModel
 from action_engine import analyze_business_action
 from field_testing import (
     FieldTestValidationError,
-    append_interaction,
+    audio_sha256,
     export_csv,
     export_json,
+    find_interaction,
     load_interactions,
+    load_processing_index,
+    recording_manifest_csv,
+    register_processed,
+    safe_audio_identity,
+    save_interaction,
     sanitized_summary_json,
     summarize,
 )
+from inference_drafts import InferenceDraftStore
 from speech_engines import create_engine
 from speech_engines.base import EmptyTranscriptError, ProviderUnavailableError
 from speech_engines.natlas_engine import (
@@ -33,6 +40,10 @@ app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
 app.config["FIELD_TEST_LOG_PATH"] = os.environ.get(
     "VOICEBRIDGE_FIELD_TEST_LOG",
     str(Path(__file__).parent / "local_data" / "field_testing" / "interactions.json"),
+)
+app.config["FIELD_TEST_PROCESSING_INDEX_PATH"] = os.environ.get(
+    "VOICEBRIDGE_FIELD_TEST_PROCESSING_INDEX",
+    str(Path(__file__).parent / "local_data" / "field_testing" / "processed.json"),
 )
 ALLOWED = {".opus", ".ogg", ".mp3", ".m4a", ".wav", ".webm", ".mp4"}
 WHISPER_LANGUAGES = {
@@ -57,6 +68,7 @@ MODELS = {
 }
 _models = {}
 _provider_engines = {}
+_inference_drafts = InferenceDraftStore(ttl_seconds=30 * 60)
 
 
 def get_model(model_size):
@@ -209,16 +221,72 @@ def _field_test_records():
     return load_interactions(app.config["FIELD_TEST_LOG_PATH"])
 
 
+def _processed_records():
+    return load_processing_index(app.config["FIELD_TEST_PROCESSING_INDEX_PATH"])
+
+
+@app.post("/field-testing/draft")
+def create_field_test_draft():
+    payload = request.get_json(silent=True) or {}
+    seed_token = str(payload.get("seed_token", ""))
+    seed = _inference_drafts.consume(seed_token)
+    if seed is None:
+        return jsonify({
+            "error": "This inference result is missing or expired. Process the audio again."
+        }), 410
+    working = str(payload.get("working_transcript", "")).strip()
+    english = str(payload.get("english_meaning", "")).strip()
+    raw = str(seed.get("raw_provider_transcript", "")).strip()
+    if not raw:
+        return jsonify({"error": "The immutable provider transcript is missing."}), 400
+    action = analyze_business_action(
+        transcript=working or raw,
+        english=english,
+        asr_language=seed.get("language_code"),
+        asr_confidence=seed.get("confidence"),
+    )
+    draft = {
+        **seed,
+        "processing_status": "completed",
+        "raw_provider_transcript": raw[:5000],
+        "working_transcript": (working or raw)[:5000],
+        "english_meaning": english[:5000],
+        "action": action,
+    }
+    token = _inference_drafts.create(draft)
+    return jsonify({"review_url": url_for("field_testing", draft=token)})
+
+
 @app.route("/field-testing", methods=["GET", "POST"])
 def field_testing():
     error = None
     saved = request.args.get("saved")
+    updated = request.args.get("updated")
+    draft_token = request.args.get("draft") or request.form.get("draft_token")
+    draft = _inference_drafts.get(draft_token)
+    if draft_token and draft is None:
+        error = "This inference draft is missing or expired. Process the audio again."
     if request.method == "POST":
         try:
-            record = append_interaction(
-                app.config["FIELD_TEST_LOG_PATH"], request.form
-            )
-            return redirect(url_for("field_testing", saved=record["interaction_id"]))
+            payload = request.form.to_dict()
+            if draft:
+                payload.update({
+                    key: draft[key] for key in (
+                        "audio_filename", "audio_code", "recording_key", "provider",
+                        "model", "selected_language", "selected_language_source",
+                        "processing_status", "raw_provider_transcript",
+                        "working_transcript", "english_meaning",
+                    )
+                })
+                if draft["action"].get("needs_confirmation"):
+                    payload["never_guess_triggered"] = "true"
+            outcome = save_interaction(app.config["FIELD_TEST_LOG_PATH"], payload)
+            if draft_token:
+                _inference_drafts.consume(draft_token)
+            parameter = "saved" if outcome["created"] else "updated"
+            return redirect(url_for(
+                "field_testing", **{parameter: outcome["record"]["interaction_id"]}
+            ))
         except FieldTestValidationError as exc:
             error = str(exc)
     try:
@@ -226,11 +294,16 @@ def field_testing():
     except FieldTestValidationError as exc:
         records = []
         error = str(exc)
+    duplicate = find_interaction(records, draft.get("recording_key")) if draft else None
     return render_template(
         "field_testing.html",
         error=error,
         saved=saved,
-        summary=summarize(records),
+        updated=updated,
+        draft=draft,
+        draft_token=draft_token if draft else "",
+        duplicate=duplicate,
+        summary=summarize(records, _processed_records()),
         recent=list(reversed(records[-10:])),
     )
 
@@ -256,11 +329,23 @@ def field_testing_json():
 @app.get("/field-testing/sanitized-summary.json")
 def field_testing_sanitized_summary():
     return Response(
-        sanitized_summary_json(_field_test_records()),
+        sanitized_summary_json(_field_test_records(), _processed_records()),
         mimetype="application/json",
         headers={
             "Content-Disposition":
                 "attachment; filename=voicebridge-field-test-summary-sanitized.json"
+        },
+    )
+
+
+@app.get("/field-testing/recording-manifest.csv")
+def field_testing_recording_manifest():
+    return Response(
+        recording_manifest_csv(_processed_records(), _field_test_records()),
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition":
+                "attachment; filename=voicebridge-recording-manifest.csv"
         },
     )
 
@@ -310,10 +395,14 @@ def index():
             else:
                 temp_path = None
                 processed_path = None
+                identity = None
                 try:
                     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                         upload.save(tmp)
                         temp_path = tmp.name
+                    identity = safe_audio_identity(
+                        upload.filename, audio_sha256(temp_path)
+                    )
                     processed_path = preprocess_audio(temp_path)
                     if provider_choice == "natlas":
                         asr = run_natlas(processed_path, forced_language)
@@ -395,6 +484,26 @@ def index():
                         if result["confidence"] is None or result["confidence"] >= 45
                         else None
                     )
+                    result.update(identity)
+                    result["processing_status"] = "completed"
+                    register_processed(
+                        app.config["FIELD_TEST_PROCESSING_INDEX_PATH"],
+                        identity,
+                        result["speech_provider"],
+                        result["model"],
+                    )
+                    result["field_test_seed"] = _inference_drafts.create({
+                        "audio_filename": result["audio_filename"],
+                        "audio_code": result["audio_code"],
+                        "recording_key": result["recording_key"],
+                        "provider": result["speech_provider"],
+                        "model": result["model"],
+                        "selected_language": result["language"],
+                        "selected_language_source": result["language_source"],
+                        "language_code": result["language_code"],
+                        "confidence": result["confidence"],
+                        "raw_provider_transcript": result["raw_transcript"],
+                    })
                 except NAtlasAudioTooLongError:
                     natlas_failed = True
                     error = (

@@ -27,8 +27,17 @@ def wav_bytes(seconds=.1, rate=16000):
 
 class ApplicationTests(unittest.TestCase):
     def setUp(self):
-        application.app.config.update(TESTING=True)
+        self.directory = tempfile.TemporaryDirectory()
+        application.app.config.update(
+            TESTING=True,
+            FIELD_TEST_LOG_PATH=str(Path(self.directory.name) / "interactions.json"),
+            FIELD_TEST_PROCESSING_INDEX_PATH=str(Path(self.directory.name) / "processed.json"),
+        )
+        application._inference_drafts.clear()
         self.client = application.app.test_client()
+
+    def tearDown(self):
+        self.directory.cleanup()
 
     def test_application_import_and_home_page(self):
         response = self.client.get("/")

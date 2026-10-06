@@ -67,6 +67,7 @@
           <div class="action-item"><strong>Confirmation required</strong><span id="action-confirmation" class="{% if result.action.needs_confirmation %}warning{% endif %}">{{ 'Yes' if result.action.needs_confirmation else 'No' }}</span></div>
         </div></div>
         <div class="result"><h3>Suggested business reply</h3>{% if result.reply %}<p id="reply">{{ result.reply }}</p><button class="copy" type="button" onclick="copyReply(this)">Copy reply</button>{% else %}<p id="reply">Transcription was unreliable. Correct the English meaning above, then select “Update Action Card from edits.”</p>{% endif %}</div>
+        <div class="result"><h3>Field-test review</h3><p class="hint">Open a separate local review page with system fields prefilled. Human scores and consent remain blank until you verify them.</p><button type="button" id="log-field-test" onclick="openFieldTestDraft(this)">Log This Interaction</button><p class="status" id="field-test-status"></p></div>
       </div>
       {% endif %}
     </section>
@@ -122,6 +123,20 @@
     async function copyReply(button){
       await navigator.clipboard.writeText(document.getElementById('reply').innerText);
       button.textContent='Copied!';
+    }
+    async function openFieldTestDraft(button){
+      const status=document.getElementById('field-test-status');
+      button.disabled=true;status.textContent='Preparing private local review…';
+      const response=await fetch('/field-testing/draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        seed_token:{{ (result.field_test_seed if result else '')|tojson }},
+        working_transcript:document.getElementById('transcript').value,
+        english_meaning:document.getElementById('english').value
+      })});
+      const data=await response.json();
+      button.disabled=false;
+      if(!response.ok){status.textContent=data.error||'Could not prepare the field-test review.';return;}
+      status.textContent='Review opened in a new tab. This inference result remains here.';
+      window.open(data.review_url,'_blank','noopener');
     }
     providerChanged(false);
   </script>
