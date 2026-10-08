@@ -120,6 +120,16 @@ Uploaded voice notes are placed in a temporary file and deleted immediately afte
   amounts and product details before sending a response.
 - This version is for business validation, not yet a public customer-facing service.
 
+## Real-world validation and known limitations
+
+Testing found that successful model execution does not guarantee an accurate
+Yoruba transcript: fluent-looking output may still be wrong, and code-switched
+language spans can fail asymmetrically. VoiceBridge does not currently claim to
+solve Yoruba code-switch ASR. It reduces operational risk through immutable raw
+transcripts, editable working text, separate translation provenance,
+Never-Guess, human confirmation and structured field-test review. See
+[`docs/YORUBA_ASR_FINDINGS.md`](docs/YORUBA_ASR_FINDINGS.md).
+
 ## Final competition status
 
 The benchmark and submission materials are prepared. Owner must record and
