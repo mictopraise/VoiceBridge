@@ -30,3 +30,6 @@ field_test_exports/
 # Public-release safeguards
 benchmark/afriswitch/owner_pinned_manifest.jsonl
 benchmark/results/afriswitch_*/raw_results.jsonl
+
+.hf-venv/
+.natlas-venv/
