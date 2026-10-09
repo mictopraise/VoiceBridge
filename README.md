@@ -130,6 +130,10 @@ transcripts, editable working text, separate translation provenance,
 Never-Guess, human confirmation and structured field-test review. See
 [`docs/YORUBA_ASR_FINDINGS.md`](docs/YORUBA_ASR_FINDINGS.md).
 
+The optional [Dual N-ATLAS Review](docs/DUAL_NATLAS_REVIEW.md) mode runs the official
+Yoruba and Nigerian English models sequentially, preserves both outputs, and uses
+deterministic disagreement only as an additional human-review signal.
+
 ## Final competition status
 
 The benchmark and submission materials are prepared. Owner must record and

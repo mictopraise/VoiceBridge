@@ -205,6 +205,27 @@ class FieldTestingStorageTests(unittest.TestCase):
         self.assertEqual(entries[0]["processing_run_count"], 2)
         self.assertEqual(len(entries[0]["providers"]), 2)
 
+    def test_dual_mode_is_one_interaction_with_two_model_evaluations(self):
+        identity = safe_audio_identity("VB-010_order.ogg", "4" * 64)
+        outcome = save_interaction(self.path, valid_payload(
+            **identity,
+            model="NCAIR1/Yoruba-ASR + NCAIR1/NigerianAccentedEnglish",
+            processing_mode="dual_natlas_review",
+            material_disagreement="true",
+            starting_model="NCAIR1/Yoruba-ASR",
+            model_outputs=[
+                {"model": "NCAIR1/Yoruba-ASR", "language": "Yoruba", "status": "completed", "transcript": "private one"},
+                {"model": "NCAIR1/NigerianAccentedEnglish", "language": "Nigerian English", "status": "completed", "transcript": "private two"},
+            ],
+        ))
+        self.assertTrue(outcome["created"])
+        self.assertEqual(len(load_interactions(self.path)), 1)
+        record = load_interactions(self.path)[0]
+        self.assertEqual(record["evaluation_count"], 2)
+        self.assertEqual(len(record["evaluations"]), 2)
+        self.assertNotIn("private one", json.dumps(record))
+        self.assertTrue(record["material_disagreement"])
+
 
 class InferenceDraftStoreTests(unittest.TestCase):
     def test_draft_expires_and_can_be_consumed_once(self):
@@ -342,6 +363,42 @@ class FieldTestingRouteTests(unittest.TestCase):
         second = self.client.post("/field-testing/draft", json=payload)
         self.assertEqual(first.status_code, 200)
         self.assertEqual(second.status_code, 410)
+
+    def test_dual_draft_requires_explicit_successful_starting_model(self):
+        outputs = [
+            {"model": "NCAIR1/Yoruba-ASR", "language": "Yoruba", "status": "completed", "transcript": "Yoruba raw"},
+            {"model": "NCAIR1/NigerianAccentedEnglish", "language": "Nigerian English", "status": "completed", "transcript": "English raw"},
+        ]
+        token = application._inference_drafts.create(self.draft_payload(
+            raw_provider_transcript="", processing_mode="dual_natlas_review",
+            model_outputs=outputs, material_disagreement=True,
+            disagreement_categories={"negations": {}},
+        ))
+        missing = self.client.post("/field-testing/draft", json={
+            "seed_token": token, "working_transcript": "", "english_meaning": ""
+        })
+        self.assertEqual(missing.status_code, 400)
+
+    def test_dual_draft_preserves_outputs_and_starting_provenance(self):
+        outputs = [
+            {"model": "NCAIR1/Yoruba-ASR", "language": "Yoruba", "status": "completed", "transcript": "Yoruba raw"},
+            {"model": "NCAIR1/NigerianAccentedEnglish", "language": "Nigerian English", "status": "completed", "transcript": "English raw"},
+        ]
+        token = application._inference_drafts.create(self.draft_payload(
+            raw_provider_transcript="", processing_mode="dual_natlas_review",
+            model_outputs=outputs, material_disagreement=True,
+            disagreement_categories={"negations": {}},
+        ))
+        response = self.client.post("/field-testing/draft", json={
+            "seed_token": token, "working_transcript": "English raw",
+            "english_meaning": "",
+            "starting_model": "NCAIR1/NigerianAccentedEnglish",
+        })
+        self.assertEqual(response.status_code, 200)
+        page = self.client.get(response.get_json()["review_url"])
+        self.assertIn(b"Yoruba raw", page.data)
+        self.assertIn(b"English raw", page.data)
+        self.assertIn(b"Material disagreement detected", page.data)
 
     def test_integrated_save_uses_trusted_system_fields_and_consumes_draft(self):
         review_url = self._create_draft()

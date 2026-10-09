@@ -31,6 +31,8 @@ FIELDS = (
     "selected_language",
     "selected_language_source",
     "processing_status",
+    "processing_mode",
+    "material_disagreement",
     "asr_outcome",
     "semantic_meaning_correct",
     "critical_fields_correct",
@@ -138,6 +140,11 @@ def validate_interaction(payload):
         "selected_language": _clean(payload.get("selected_language"), 80),
         "selected_language_source": _clean(payload.get("selected_language_source"), 80),
         "processing_status": _clean(payload.get("processing_status") or "completed", 30),
+        "processing_mode": _clean(payload.get("processing_mode") or "single_model", 40),
+        "material_disagreement": _boolean(payload.get("material_disagreement")),
+        "disagreement_categories": payload.get("disagreement_categories") or {},
+        "model_outputs": payload.get("model_outputs") or [],
+        "starting_model": _clean(payload.get("starting_model"), 180),
         "asr_outcome": _clean(payload.get("asr_outcome"), 20),
         "semantic_meaning_correct": _clean(payload.get("semantic_meaning_correct"), 20),
         "critical_fields_correct": _clean(payload.get("critical_fields_correct"), 20),
@@ -191,6 +198,13 @@ def validate_interaction(payload):
         record["raw_provider_transcript"] = ""
         record["working_transcript"] = ""
         record["english_meaning"] = ""
+        for item in record["model_outputs"]:
+            if isinstance(item, dict):
+                item.pop("transcript", None)
+    if not isinstance(record["disagreement_categories"], dict):
+        raise FieldTestValidationError("Invalid disagreement metadata.")
+    if not isinstance(record["model_outputs"], list):
+        raise FieldTestValidationError("Invalid model-evaluation metadata.")
     return record
 
 
@@ -249,6 +263,30 @@ def _evaluation(record, now):
         "mode": record["evaluation_mode"],
         **{key: value for key, value in record.items() if key not in excluded},
     }
+
+
+def _dual_evaluations(record, now):
+    """Represent one genuine interaction with two provider-model evaluations."""
+    outputs = record.get("model_outputs") or []
+    if record.get("processing_mode") != "dual_natlas_review" or not outputs:
+        return [_evaluation(record, now)]
+    evaluations = []
+    for position, output in enumerate(outputs, start=1):
+        evaluation = _evaluation(record, now)
+        evaluation.update({
+            "evaluation_id": f"EVAL-{position:03d}",
+            "provider": "NCAIR N-ATLAS",
+            "model": output.get("model", ""),
+            "selected_language": output.get("language", ""),
+            "processing_status": output.get("status", "unknown"),
+            "processing_mode": "dual_natlas_review",
+            "material_disagreement": record.get("material_disagreement", False),
+            "starting_transcript_selected": output.get("model") == record.get("starting_model"),
+        })
+        if record.get("store_transcripts"):
+            evaluation["raw_provider_transcript"] = output.get("transcript", "")
+        evaluations.append(evaluation)
+    return evaluations
 
 
 def find_interaction(records, recording_key):
@@ -316,14 +354,15 @@ def save_interaction(path, payload, now=None):
                 raise FieldTestValidationError(
                     "No saved interaction matches this recording; save it as a new interaction first."
                 )
-            evaluation = _evaluation(normalized, timestamp)
+            evaluations = _dual_evaluations(normalized, timestamp)
+            evaluation = evaluations[0]
             record = {
                 "interaction_id": _next_id(records),
                 "date_time": timestamp.isoformat(),
                 **{key: value for key, value in normalized.items()
                    if key not in {"evaluation_mode", "store_transcripts"}},
-                "evaluation_count": 1,
-                "evaluations": [evaluation],
+                "evaluation_count": len(evaluations),
+                "evaluations": evaluations,
             }
             records.append(record)
             outcome = {"record": record, "evaluation": evaluation, "created": True}

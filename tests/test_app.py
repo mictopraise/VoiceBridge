@@ -44,6 +44,47 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"VoiceBridge", response.data)
         self.assertIn(b"N-ATLAS", response.data)
+        self.assertIn(b"Dual N-ATLAS Review", response.data)
+
+    def test_one_upload_invokes_both_natlas_models_and_keeps_outputs_separate(self):
+        outputs = [
+            self._natlas_result("YORUBA IMMUTABLE OUTPUT"),
+            ASRResult("natlas", "NCAIR1/NigerianAccentedEnglish",
+                      "ENGLISH IMMUTABLE OUTPUT", "en-NG", metadata={"confidence": None}),
+        ]
+        with patch.object(application, "preprocess_audio", return_value="processed.wav"), \
+             patch.object(application, "run_natlas", side_effect=outputs) as natlas, \
+             patch.object(application, "run_whisper") as whisper, \
+             patch.object(application.os.path, "exists", return_value=False):
+            response = self._post_audio(provider="dual_natlas", language="dual")
+        self.assertEqual([call.args[1] for call in natlas.call_args_list], ["yo", "en-NG"])
+        whisper.assert_not_called()
+        self.assertIn(b"YORUBA IMMUTABLE OUTPUT", response.data)
+        self.assertIn(b"ENGLISH IMMUTABLE OUTPUT", response.data)
+        self.assertIn(b"human review required", response.data.lower())
+        self.assertNotIn(b"automatically correct", response.data.lower())
+
+    def test_dual_partial_failure_is_visible_without_fallback(self):
+        outputs = [
+            self._natlas_result("Yoruba output"),
+            ProviderUnavailableError("technical failure"),
+        ]
+        with patch.object(application, "preprocess_audio", return_value="processed.wav"), \
+             patch.object(application, "run_natlas", side_effect=outputs), \
+             patch.object(application, "run_whisper") as whisper, \
+             patch.object(application.os.path, "exists", return_value=False):
+            response = self._post_audio(provider="dual_natlas", language="dual")
+        whisper.assert_not_called()
+        self.assertIn(b"model could not process", response.data)
+        self.assertIn(b"One N-ATLAS model failed", response.data)
+
+    def test_dual_over_30_seconds_stops_before_second_model(self):
+        with patch.object(application, "preprocess_audio", return_value="processed.wav"), \
+             patch.object(application, "run_natlas", side_effect=NAtlasAudioTooLongError("31")) as natlas, \
+             patch.object(application.os.path, "exists", return_value=False):
+            response = self._post_audio(provider="dual_natlas", language="dual")
+        self.assertEqual(natlas.call_count, 1)
+        self.assertIn(b"up to 30 seconds", response.data)
 
     def _post_audio(self, *, provider="natlas", language="yo", model_size="small"):
         return self.client.post("/", data={

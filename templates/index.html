@@ -23,9 +23,9 @@
     <section class="card">
       {% if error %}<div class="error">{{ error }}{% if natlas_failed %}<div class="error-actions"><button type="button" class="secondary" onclick="retryUpload()">Try again</button><button type="button" class="secondary" onclick="chooseWhisper()">Process explicitly with local Whisper</button></div>{% endif %}</div>{% endif %}
       <form method="post" enctype="multipart/form-data">
-        <div class="field"><label for="provider">Speech provider</label><select id="provider" name="provider" onchange="providerChanged(true)">{% for code, label in providers.items() %}<option value="{{ code }}" {% if selected_provider == code %}selected{% endif %}>{{ label }}</option>{% endfor %}</select><p class="hint">Providers never switch automatically. Whisper processing requires explicit selection.</p></div>
+        <div class="field"><label for="provider">Processing mode</label><select id="provider" name="provider" onchange="providerChanged(true)">{% for code, label in providers.items() %}<option value="{{ code }}" {% if selected_provider == code %}selected{% endif %}>{{ label }}</option>{% endfor %}</select><p class="hint">Providers never switch automatically. Dual review runs only the two named N-ATLAS models.</p></div>
         <div id="provider-switch-notice" class="switch-notice">Provider changed. Upload the audio and start a new run; previous output is not reused.</div>
-        <div class="field"><label for="language">Spoken language</label><select id="language" name="language">{% for code, details in languages.items() %}<option value="{{ code }}" {% if selected == code %}selected{% endif %}>{{ details[1] }}</option>{% endfor %}</select><p id="language-hint" class="hint"></p></div>
+        <div id="language-field" class="field"><label for="language">Spoken language / model selection</label><select id="language" name="language">{% for code, details in languages.items() %}<option value="{{ code }}" {% if selected == code %}selected{% endif %}>{{ details[1] }}</option>{% endfor %}</select><p id="language-hint" class="hint"></p></div>
         <div id="whisper-model-field" class="field"><label for="model_size">Whisper accuracy mode</label><select id="model_size" name="model_size">{% for code, label in models.items() %}<option value="{{ code }}" {% if selected_model == code %}selected{% endif %}>{{ label }}</option>{% endfor %}</select><p class="hint">This setting applies to explicit Whisper ASR and the separately attributed local translation stage.</p></div>
         <label for="audio">Customer voice note</label>
         <div class="drop"><input id="audio" name="audio" type="file" accept="audio/*,.opus,.ogg,.m4a,.webm,.mp4" required><p class="hint">OPUS, OGG, MP3, M4A, WAV, WEBM or MP4 · maximum 25 MB</p></div>
@@ -43,7 +43,14 @@
           <div class="provenance-item"><strong>Transcript corrected</strong><span id="transcript-corrected">No</span></div>
           <div class="provenance-item"><strong>Fallback</strong>{{ result.fallback_status }}</div>
         </div><p class="notice">{{ result.confidence_message }}</p></div>
-        <div class="result"><h3>Original provider transcript — immutable</h3><div class="immutable" id="raw-transcript">{{ result.raw_transcript }}</div><p class="hint">Preserved exactly as returned by {{ result.speech_provider }} before translation, correction or business analysis.</p></div>
+        {% if result.processing_mode == 'dual_natlas_review' %}
+        <div class="result"><h3>Dual N-ATLAS immutable outputs</h3>
+          {% for output in result.model_outputs %}<div class="immutable" style="margin-top:12px"><strong>N-ATLAS {{ output.label }}</strong><br><span class="hint">Model: {{ output.model }} · Status: {{ output.status }} · Confidence: Not provided</span><p>{{ output.transcript if output.status == 'completed' else output.error }}</p>{% if output.status == 'completed' %}<button class="secondary" type="button" onclick="chooseStartingTranscript({{ output.transcript|tojson }},{{ output.model|tojson }},this)">Use as working-transcript start</button>{% endif %}</div>{% endfor %}
+          <div class="safety-banner {{ 'alert' if result.comparison.review_required else 'safe' }}">{{ result.comparison.notice }}</div>
+          {% if result.comparison.categories %}<p class="hint">Signals: {{ result.comparison.categories.keys()|join(', ')|replace('_',' ') }}. These rules do not identify a correct model.</p>{% endif %}
+          <p class="hint">Both raw outputs are preserved separately. Agreement is not proof of correctness, and no language was auto-detected.</p>
+        </div>
+        {% else %}<div class="result"><h3>Original provider transcript — immutable</h3><div class="immutable" id="raw-transcript">{{ result.raw_transcript }}</div><p class="hint">Preserved exactly as returned by {{ result.speech_provider }} before translation, correction or business analysis.</p></div>{% endif %}
         <div class="result"><h3>Working transcript — editable</h3><textarea class="editor" id="transcript">{{ result.transcript }}</textarea><p class="hint">Corrections are tracked separately and never overwrite the original provider transcript.</p></div>
         <div class="result"><h3>English meaning — editable</h3><p class="hint">Provider: {{ result.translation_provider }}</p><textarea class="editor" id="english">{{ result.english }}</textarea><button class="secondary" type="button" onclick="regenerateAction()">Update Action Card from edits</button><p class="status" id="status"></p></div>
         <div class="result action-card"><h3>VoiceBridge Action Card</h3>
@@ -75,6 +82,9 @@
   <footer>Private MVP · Voice notes are deleted immediately after processing. · <a href="/field-testing">Open local field-test logger</a></footer>
   <script>
     const languageOptions={
+      dual_natlas:{{ dual_natlas_languages|tojson }},
+      natlas_yo:{{ natlas_yoruba_language|tojson }},
+      natlas_en:{{ natlas_english_language|tojson }},
       natlas:{{ natlas_languages|tojson }},
       whisper:{{ whisper_languages|tojson }}
     };
@@ -88,7 +98,8 @@
       });
       if([...language.options].some(option=>option.value===previous)){language.value=previous;}
       document.getElementById('whisper-model-field').style.display=provider==='whisper'?'block':'none';
-      document.getElementById('language-hint').innerText=provider==='natlas'?'N-ATLAS requires explicit Yoruba or Nigerian-accented English selection. No automatic detection.':'Whisper may use automatic detection or an explicitly selected language.';
+      document.getElementById('language-field').style.display=['dual_natlas','natlas_yo','natlas_en'].includes(provider)?'none':'block';
+      document.getElementById('language-hint').innerText=provider.startsWith('natlas')?'The model is explicitly selected by this processing mode. No automatic detection.':'Whisper may use automatic detection or an explicitly selected language.';
       if(userInitiated){
         document.getElementById('provider-switch-notice').style.display='block';
         const results=document.getElementById('results');if(results){results.style.display='none';}
@@ -97,6 +108,14 @@
     function retryUpload(){document.getElementById('audio').focus();document.getElementById('audio').scrollIntoView({behavior:'smooth'});}
     function chooseWhisper(){document.getElementById('provider').value='whisper';providerChanged(true);retryUpload();}
     function showValue(id,value){document.getElementById(id).innerText=value===null||value===undefined||value===''?'Not stated':value;}
+    let selectedStartingModel='';
+    function chooseStartingTranscript(transcript,model,button){
+      document.getElementById('transcript').value=transcript;selectedStartingModel=model;
+      document.getElementById('transcript-corrected').innerText='Starting point selected: '+model;
+      document.querySelectorAll('.immutable button').forEach(item=>item.textContent='Use as working-transcript start');
+      button.textContent='Selected as starting point';
+      document.getElementById('status').textContent='Starting transcript selected. Review/edit it, then update the Action Card.';
+    }
     function updateCritical(key,elementId,state){
       showValue('action-'+elementId,state.value===null?'Unknown':state.value);
       const box=document.getElementById('critical-'+elementId);
@@ -131,6 +150,7 @@
         seed_token:{{ (result.field_test_seed if result else '')|tojson }},
         working_transcript:document.getElementById('transcript').value,
         english_meaning:document.getElementById('english').value
+        ,starting_model:selectedStartingModel
       })});
       const data=await response.json();
       button.disabled=false;

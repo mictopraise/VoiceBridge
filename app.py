@@ -10,6 +10,7 @@ from flask import Flask, Response, jsonify, redirect, render_template, request, 
 from faster_whisper import WhisperModel
 
 from action_engine import analyze_business_action
+from dual_natlas import compare_transcripts
 from field_testing import (
     FieldTestValidationError,
     audio_sha256,
@@ -58,9 +59,16 @@ NATLAS_LANGUAGES = {
     "en-NG": ("en-NG", "Nigerian-accented English"),
 }
 PROVIDERS = {
-    "natlas": "N-ATLAS — Official Nigerian-language ASR",
+    "dual_natlas": "Dual N-ATLAS Review — Recommended",
+    "natlas_yo": "N-ATLAS Yoruba",
+    "natlas_en": "N-ATLAS Nigerian English",
     "whisper": "Whisper — Local explicit alternative",
 }
+DUAL_NATLAS_LANGUAGES = {
+    "dual": (None, "Yoruba-ASR + NigerianAccentedEnglish (sequential review)"),
+}
+NATLAS_YORUBA_LANGUAGE = {"yo": NATLAS_LANGUAGES["yo"]}
+NATLAS_ENGLISH_LANGUAGE = {"en-NG": NATLAS_LANGUAGES["en-NG"]}
 MODELS = {
     "small": "Small — faster",
     "medium": "Medium — more accurate",
@@ -146,6 +154,63 @@ def run_natlas(path, language):
     return get_natlas_engine().transcribe(
         path, language=language, task="transcribe"
     )
+
+
+def run_dual_natlas(path):
+    """Run both official models sequentially and retain independent outcomes."""
+    outputs = []
+    for language, label in (("yo", "Yoruba-ASR"), ("en-NG", "NigerianAccentedEnglish")):
+        model = NATLAS_LANGUAGES[language][1]
+        try:
+            result = run_natlas(path, language)
+            outputs.append({
+                "language_code": language,
+                "language": model,
+                "label": label,
+                "model": result.model,
+                "status": "completed",
+                "transcript": result.transcript,
+                "confidence": None,
+                "error": None,
+            })
+        except NAtlasAudioTooLongError:
+            raise
+        except Exception as exc:
+            outputs.append({
+                "language_code": language,
+                "language": model,
+                "label": label,
+                "model": (
+                    "NCAIR1/Yoruba-ASR" if language == "yo"
+                    else "NCAIR1/NigerianAccentedEnglish"
+                ),
+                "status": "failed",
+                "transcript": "",
+                "confidence": None,
+                "error": f"{type(exc).__name__}: model could not process the recording",
+            })
+    successful = [item for item in outputs if item["status"] == "completed"]
+    if not successful:
+        raise ProviderUnavailableError(
+            "Both N-ATLAS models failed. No fallback was performed."
+        )
+    if len(successful) == 2:
+        comparison = compare_transcripts(
+            successful[0]["transcript"], successful[1]["transcript"]
+        )
+    else:
+        comparison = {
+            "material_disagreement": True,
+            "review_required": True,
+            "categories": {"technical_model_failure": {
+                "failed_models": [item["model"] for item in outputs if item["status"] == "failed"]
+            }},
+            "token_similarity_for_routing_only": None,
+            "confidence": None,
+            "correct_model": None,
+            "notice": "One N-ATLAS model failed — human review required.",
+        }
+    return outputs, comparison
 
 
 def confidence_message(confidence, language_probability, forced_language):
@@ -236,7 +301,23 @@ def create_field_test_draft():
         }), 410
     working = str(payload.get("working_transcript", "")).strip()
     english = str(payload.get("english_meaning", "")).strip()
-    raw = str(seed.get("raw_provider_transcript", "")).strip()
+    starting_model = str(payload.get("starting_model", "")).strip()
+    model_outputs = seed.get("model_outputs") or []
+    if seed.get("processing_mode") == "dual_natlas_review":
+        selected = next(
+            (item for item in model_outputs
+             if item.get("model") == starting_model and item.get("status") == "completed"),
+            None,
+        )
+        if selected is None:
+            return jsonify({
+                "error": "Choose one successful model output as the working-transcript starting point."
+            }), 400
+        raw = str(selected.get("transcript", "")).strip()
+        seed["starting_model"] = selected["model"]
+        seed["starting_language"] = selected["language"]
+    else:
+        raw = str(seed.get("raw_provider_transcript", "")).strip()
     if not raw:
         return jsonify({"error": "The immutable provider transcript is missing."}), 400
     action = analyze_business_action(
@@ -276,7 +357,10 @@ def field_testing():
                         "model", "selected_language", "selected_language_source",
                         "processing_status", "raw_provider_transcript",
                         "working_transcript", "english_meaning",
+                        "processing_mode", "material_disagreement",
+                        "disagreement_categories", "model_outputs", "starting_model",
                     )
+                    if key in draft
                 })
                 if draft["action"].get("needs_confirmation"):
                     payload["never_guess_triggered"] = "true"
@@ -355,15 +439,23 @@ def index():
     result = None
     error = None
     natlas_failed = False
-    submitted_provider = request.form.get("provider", "natlas")
-    unsupported_provider = submitted_provider not in PROVIDERS
+    submitted_provider = request.form.get("provider", "dual_natlas")
+    unsupported_provider = submitted_provider not in {*PROVIDERS, "natlas"}
     provider_choice = submitted_provider
     if unsupported_provider:
-        provider_choice = "natlas"
+        provider_choice = "dual_natlas"
     language_catalog = (
-        NATLAS_LANGUAGES if provider_choice == "natlas" else WHISPER_LANGUAGES
+        DUAL_NATLAS_LANGUAGES if provider_choice == "dual_natlas"
+        else NATLAS_YORUBA_LANGUAGE if provider_choice == "natlas_yo"
+        else NATLAS_ENGLISH_LANGUAGE if provider_choice == "natlas_en"
+        else NATLAS_LANGUAGES if provider_choice == "natlas"
+        else WHISPER_LANGUAGES
     )
-    default_language = "yo" if provider_choice == "natlas" else "auto"
+    default_language = (
+        "dual" if provider_choice == "dual_natlas"
+        else "yo" if provider_choice in {"natlas", "natlas_yo"}
+        else "en-NG" if provider_choice == "natlas_en" else "auto"
+    )
     submitted_language = request.form.get("language", default_language)
     unsupported_language = submitted_language not in language_catalog
     language_choice = submitted_language
@@ -381,7 +473,7 @@ def index():
                 "automatically."
             )
         elif unsupported_language:
-            natlas_failed = provider_choice == "natlas"
+            natlas_failed = provider_choice in {"natlas", "natlas_yo", "natlas_en", "dual_natlas"}
             error = (
                 "That language is not supported by the selected provider. "
                 "N-ATLAS currently exposes Yoruba and Nigerian-accented English only."
@@ -404,7 +496,33 @@ def index():
                         upload.filename, audio_sha256(temp_path)
                     )
                     processed_path = preprocess_audio(temp_path)
-                    if provider_choice == "natlas":
+                    if provider_choice == "dual_natlas":
+                        model_outputs, comparison = run_dual_natlas(processed_path)
+                        result = {
+                            "provider": "dual_natlas",
+                            "processing_mode": "dual_natlas_review",
+                            "speech_provider": "NCAIR N-ATLAS",
+                            "model": "NCAIR1/Yoruba-ASR + NCAIR1/NigerianAccentedEnglish",
+                            "language": "Two explicit model evaluations",
+                            "language_code": "dual",
+                            "language_source": "Fixed by Dual N-ATLAS Review mode; not auto-detected",
+                            "model_outputs": model_outputs,
+                            "comparison": comparison,
+                            "raw_transcript": "",
+                            "transcript": "",
+                            "raw_english": "",
+                            "english": "",
+                            "translation_provider": "Not generated",
+                            "transcript_user_corrected": False,
+                            "confidence": None,
+                            "confidence_message": (
+                                "Neither N-ATLAS model supplies calibrated confidence. "
+                                "Review both immutable outputs and choose a starting transcript."
+                            ),
+                            "fallback_status": "None",
+                            "translation_by_natlas": False,
+                        }
+                    elif provider_choice in {"natlas", "natlas_yo", "natlas_en"}:
                         asr = run_natlas(processed_path, forced_language)
                         raw_transcript = asr.transcript
                         english = ""
@@ -503,6 +621,14 @@ def index():
                         "language_code": result["language_code"],
                         "confidence": result["confidence"],
                         "raw_provider_transcript": result["raw_transcript"],
+                        "processing_mode": result.get("processing_mode", "single_model"),
+                        "material_disagreement": result.get("comparison", {}).get(
+                            "material_disagreement", False
+                        ),
+                        "disagreement_categories": result.get("comparison", {}).get(
+                            "categories", {}
+                        ),
+                        "model_outputs": result.get("model_outputs", []),
                     })
                 except NAtlasAudioTooLongError:
                     natlas_failed = True
@@ -511,14 +637,14 @@ def index():
                         "Please upload a shorter clip or explicitly choose local Whisper."
                     )
                 except (NAtlasLanguageError, ProviderUnavailableError, EmptyTranscriptError):
-                    natlas_failed = provider_choice == "natlas"
+                    natlas_failed = provider_choice in {"natlas", "natlas_yo", "natlas_en", "dual_natlas"}
                     error = (
                         "N-ATLAS could not process this recording. No fallback was performed."
                         if natlas_failed else
                         "The selected speech provider could not process this recording."
                     )
                 except Exception as exc:
-                    natlas_failed = provider_choice == "natlas"
+                    natlas_failed = provider_choice in {"natlas", "natlas_yo", "natlas_en", "dual_natlas"}
                     error = (
                         "N-ATLAS could not process this recording. No fallback was performed."
                         if natlas_failed else
@@ -534,6 +660,9 @@ def index():
         providers=PROVIDERS, selected_provider=provider_choice,
         languages=language_catalog, selected=language_choice,
         whisper_languages=WHISPER_LANGUAGES, natlas_languages=NATLAS_LANGUAGES,
+        dual_natlas_languages=DUAL_NATLAS_LANGUAGES,
+        natlas_yoruba_language=NATLAS_YORUBA_LANGUAGE,
+        natlas_english_language=NATLAS_ENGLISH_LANGUAGE,
         models=MODELS, selected_model=request.form.get("model_size", "small"),
         natlas_failed=natlas_failed,
     )
