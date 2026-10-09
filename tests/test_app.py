@@ -74,6 +74,18 @@ class ApplicationTests(unittest.TestCase):
         self.assertIn(b"ENGLISH IMMUTABLE OUTPUT", response.data)
         self.assertIn(b"human review required", response.data.lower())
         self.assertNotIn(b"automatically correct", response.data.lower())
+        self.assertIn(b"Choose a model output to begin human review", response.data)
+        self.assertIn(b'id="action-card" class="result action-card" style="display:none"', response.data)
+        self.assertIn(b'id="log-field-test"', response.data)
+        self.assertIn(b"disabled", response.data)
+        self.assertIn(b"chooseStartingTranscriptFromButton(this)", response.data)
+
+    def test_dual_start_selection_refreshes_action_and_handles_language(self):
+        response = self.client.get("/")
+        self.assertIn(b"async function chooseStartingTranscript", response.data)
+        self.assertIn(b"await regenerateAction()", response.data)
+        self.assertIn(b"language==='en-NG'?transcript:''", response.data)
+        self.assertIn(b"No English meaning was invented", response.data)
 
     def test_dual_partial_failure_is_visible_without_fallback(self):
         outputs = [

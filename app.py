@@ -294,7 +294,7 @@ def _processed_records():
 def create_field_test_draft():
     payload = request.get_json(silent=True) or {}
     seed_token = str(payload.get("seed_token", ""))
-    seed = _inference_drafts.consume(seed_token)
+    seed = _inference_drafts.get(seed_token)
     if seed is None:
         return jsonify({
             "error": "This inference result is missing or expired. Process the audio again."
@@ -335,7 +335,29 @@ def create_field_test_draft():
         "action": action,
     }
     token = _inference_drafts.create(draft)
+    _inference_drafts.consume(seed_token)
     return jsonify({"review_url": url_for("field_testing", draft=token)})
+
+
+def pending_action_review():
+    """Non-action placeholder used only while dual review awaits human selection."""
+    fields = (
+        "amount", "quantity", "product_or_service", "location", "date", "time",
+        "payment_status", "phone_or_reference",
+    )
+    return {
+        "languages": [], "intent": "UNKNOWN", "customer_name": None,
+        "urgency": None, "required_action": "Choose a model output to begin human review",
+        "missing_information": ["Starting transcript selection"],
+        "confidence": "Not evaluated", "needs_confirmation": True,
+        "suggested_reply": "", "item_mentions": [],
+        "field_states": {
+            name: {"value": None, "confidence": "unknown",
+                   "requires_confirmation": True,
+                   "reason": "No starting transcript has been selected"}
+            for name in fields
+        },
+    }
 
 
 @app.route("/field-testing", methods=["GET", "POST"])
@@ -521,6 +543,7 @@ def index():
                             ),
                             "fallback_status": "None",
                             "translation_by_natlas": False,
+                            "action_ready": False,
                         }
                     elif provider_choice in {"natlas", "natlas_yo", "natlas_en"}:
                         asr = run_natlas(processed_path, forced_language)
@@ -558,6 +581,7 @@ def index():
                             ),
                             "fallback_status": "None",
                             "translation_by_natlas": False,
+                            "action_ready": True,
                         }
                     else:
                         transcript, detected, confidence, language_probability = run_whisper(
@@ -590,12 +614,15 @@ def index():
                             ),
                             "fallback_status": "None — explicitly selected provider",
                             "translation_by_natlas": False,
+                            "action_ready": True,
                         }
-                    result["action"] = analyze_business_action(
-                        transcript=result["raw_transcript"],
-                        english=result["english"],
-                        asr_language=result["language_code"],
-                        asr_confidence=result["confidence"],
+                    result["action"] = (
+                        analyze_business_action(
+                            transcript=result["raw_transcript"],
+                            english=result["english"],
+                            asr_language=result["language_code"],
+                            asr_confidence=result["confidence"],
+                        ) if result["action_ready"] else pending_action_review()
                     )
                     result["reply"] = (
                         result["action"]["suggested_reply"]

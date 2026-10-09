@@ -142,6 +142,41 @@ def extract_product(text: str) -> str | None:
     return None
 
 
+def extract_item_mentions(text: str) -> list[dict[str, Any]]:
+    """Extract explicit quantity/item spans without inferring unstated products."""
+    quantity_tokens = r"\d{1,3}|" + "|".join(NUMBER_WORDS) + r"|some"
+    stop = (
+        r"to|at|for|today|tomorrow|tonight|monday|tuesday|wednesday|thursday|"
+        r"friday|saturday|sunday|morning|afternoon|evening|night"
+    )
+    pattern = re.compile(
+        rf"\b(?P<quantity>{quantity_tokens})\s+"
+        rf"(?P<item>(?:loaves?\s+of\s+)?[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'-]*"
+        rf"(?:\s+(?!{stop}\b)[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'-]*){{0,2}}?)"
+        rf"(?=\s+(?:{stop})\b|\s*(?:,|;|\band\b|$))",
+        re.IGNORECASE,
+    )
+    excluded = {"day", "days", "week", "weeks", "hour", "hours", "things", "thing"}
+    mentions = []
+    for match in pattern.finditer(text):
+        item = " ".join(match.group("item").strip().split())
+        if item.casefold() in excluded:
+            continue
+        quantity_text = match.group("quantity").casefold()
+        quantity = (
+            int(quantity_text) if quantity_text.isdigit()
+            else NUMBER_WORDS.get(quantity_text)
+        )
+        display = f"{quantity if quantity is not None else 'some'} {item}"
+        mentions.append({
+            "item": item,
+            "quantity": quantity,
+            "quantity_text": quantity_text,
+            "display": display,
+        })
+    return mentions
+
+
 def extract_location(text: str) -> str | None:
     match = re.search(
         r"\b(?:deliver(?:ed|y)?\s+(?:to|at)|send\s+(?:it\s+)?to|bring\s+(?:it\s+)?to|location\s+(?:is|na))\s+"
@@ -364,9 +399,22 @@ def analyze_business_action(
 ) -> dict[str, Any]:
     source = (english or transcript or "").strip()
     intent = classify_intent(source)
+    item_mentions = (
+        extract_item_mentions(source)
+        if intent in {"NEW_ORDER", "DELIVERY_REQUEST"} else []
+    )
+    known_product = extract_product(source)
+    generic_product_summary = None
+    if item_mentions and not known_product:
+        generic_product_summary = "; ".join(item["display"] for item in item_mentions)
+    structured_quantity = extract_quantity(source)
+    if len(item_mentions) == 1 and structured_quantity is None:
+        structured_quantity = item_mentions[0]["quantity"]
+    elif len(item_mentions) > 1:
+        structured_quantity = None
     entities = {
-        "product_or_service": extract_product(source),
-        "quantity": extract_quantity(source),
+        "product_or_service": known_product or generic_product_summary,
+        "quantity": structured_quantity,
         "amount": extract_amount(source),
         "location": extract_location(source),
         "date_or_time": extract_date_time(source),
@@ -398,6 +446,13 @@ def analyze_business_action(
         )
         for field, value in critical_values.items()
     }
+    if generic_product_summary:
+        field_states["product_or_service"] = {
+            "value": generic_product_summary,
+            "confidence": "low",
+            "requires_confirmation": True,
+            "reason": "Product/service requires human confirmation",
+        }
     for field in ("amount", "quantity", "product_or_service", "location", "phone_or_reference"):
         entities[field] = field_states[field]["value"]
     dates = {
@@ -437,6 +492,7 @@ def analyze_business_action(
         "languages": detect_languages(f"{transcript} {english or ''}", asr_language),
         "intent": intent,
         "customer_request": source or None,
+        "item_mentions": item_mentions,
         **entities,
         **dates,
         "payment_status": field_states["payment_status"]["value"],

@@ -47,3 +47,7 @@ identity and one genuine interaction, with two model-evaluation entries. The hum
 chooses a successful output as the editable working-transcript starting point.
 That provenance is retained. Raw transcript copies are not written to the private
 field-test log unless the existing explicit transcript-retention option is selected.
+No Action Card or suggested reply is presented as current before this selection.
+Selecting Nigerian English seeds the editable English meaning with that English
+transcript; selecting Yoruba leaves English meaning blank and runs transcript-only
+analysis until a human supplies or verifies an English meaning.

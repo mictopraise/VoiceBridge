@@ -45,7 +45,7 @@
         </div><p class="notice">{{ result.confidence_message }}</p></div>
         {% if result.processing_mode == 'dual_natlas_review' %}
         <div class="result"><h3>Dual N-ATLAS immutable outputs</h3>
-          {% for output in result.model_outputs %}<div class="immutable" style="margin-top:12px"><strong>N-ATLAS {{ output.label }}</strong><br><span class="hint">Model: {{ output.model }} · Status: {{ output.status }} · Confidence: Not provided</span><p>{{ output.transcript if output.status == 'completed' else output.error }}</p>{% if output.status == 'completed' %}<button class="secondary" type="button" onclick="chooseStartingTranscript({{ output.transcript|tojson }},{{ output.model|tojson }},this)">Use as working-transcript start</button>{% endif %}</div>{% endfor %}
+          {% for output in result.model_outputs %}<div class="immutable" style="margin-top:12px"><strong>N-ATLAS {{ output.label }}</strong><br><span class="hint">Model: {{ output.model }} · Status: {{ output.status }} · Confidence: Not provided</span><p>{{ output.transcript if output.status == 'completed' else output.error }}</p>{% if output.status == 'completed' %}<button class="secondary" type="button" data-transcript="{{ output.transcript|e }}" data-model="{{ output.model|e }}" data-language="{{ output.language_code|e }}" onclick="chooseStartingTranscriptFromButton(this)">Use as working-transcript start</button>{% endif %}</div>{% endfor %}
           <div class="safety-banner {{ 'alert' if result.comparison.review_required else 'safe' }}">{{ result.comparison.notice }}</div>
           {% if result.comparison.categories %}<p class="hint">Signals: {{ result.comparison.categories.keys()|join(', ')|replace('_',' ') }}. These rules do not identify a correct model.</p>{% endif %}
           <p class="hint">Both raw outputs are preserved separately. Agreement is not proof of correctness, and no language was auto-detected.</p>
@@ -53,7 +53,8 @@
         {% else %}<div class="result"><h3>Original provider transcript — immutable</h3><div class="immutable" id="raw-transcript">{{ result.raw_transcript }}</div><p class="hint">Preserved exactly as returned by {{ result.speech_provider }} before translation, correction or business analysis.</p></div>{% endif %}
         <div class="result"><h3>Working transcript — editable</h3><textarea class="editor" id="transcript">{{ result.transcript }}</textarea><p class="hint">Corrections are tracked separately and never overwrite the original provider transcript.</p></div>
         <div class="result"><h3>English meaning — editable</h3><p class="hint">Provider: {{ result.translation_provider }}</p><textarea class="editor" id="english">{{ result.english }}</textarea><button class="secondary" type="button" onclick="regenerateAction()">Update Action Card from edits</button><p class="status" id="status"></p></div>
-        <div class="result action-card"><h3>VoiceBridge Action Card</h3>
+        {% if not result.action_ready %}<div id="action-review-prompt" class="result"><h3>Action Card review</h3><div class="safety-banner alert">Choose a model output to begin human review.</div><p class="hint">No Action Card has been generated from empty content.</p></div>{% endif %}
+        <div id="action-card" class="result action-card" {% if not result.action_ready %}style="display:none"{% endif %}><h3>VoiceBridge Action Card</h3>
           <div id="safety-banner" class="safety-banner {{ 'alert' if result.action.needs_confirmation else 'safe' }}">{{ 'ACTION PAUSED — confirm highlighted fields' if result.action.needs_confirmation else 'READY FOR REVIEW — no critical uncertainty detected' }}</div>
           <div class="action-grid">
           <div class="action-item"><strong>Languages</strong><span id="action-languages">{{ result.action.languages|join(' + ') }}</span></div>
@@ -68,13 +69,14 @@
           {% endfor %}
           <div class="action-item"><strong>Customer</strong><span id="action-customer">{{ result.action.customer_name or 'Not stated' }}</span></div>
           <div class="action-item"><strong>Urgency</strong><span id="action-urgency">{{ result.action.urgency or 'Not stated' }}</span></div>
+          <div class="action-item"><strong>Item mentions</strong><span id="action-items">{{ result.action.item_mentions|map(attribute='display')|join('; ') if result.action.item_mentions else 'None safely structured' }}</span></div>
           <div class="action-item"><strong>Required action</strong><span id="action-required">{{ result.action.required_action }}</span></div>
           <div class="action-item"><strong>Missing information</strong><span id="action-missing">{{ result.action.missing_information|join(', ') if result.action.missing_information else 'None detected' }}</span></div>
           <div class="action-item"><strong>Confidence</strong><span id="action-confidence">{{ result.action.confidence }}</span></div>
           <div class="action-item"><strong>Confirmation required</strong><span id="action-confirmation" class="{% if result.action.needs_confirmation %}warning{% endif %}">{{ 'Yes' if result.action.needs_confirmation else 'No' }}</span></div>
         </div></div>
-        <div class="result"><h3>Suggested business reply</h3>{% if result.reply %}<p id="reply">{{ result.reply }}</p><button class="copy" type="button" onclick="copyReply(this)">Copy reply</button>{% else %}<p id="reply">Transcription was unreliable. Correct the English meaning above, then select “Update Action Card from edits.”</p>{% endif %}</div>
-        <div class="result"><h3>Field-test review</h3><p class="hint">Open a separate local review page with system fields prefilled. Human scores and consent remain blank until you verify them.</p><button type="button" id="log-field-test" onclick="openFieldTestDraft(this)">Log This Interaction</button><p class="status" id="field-test-status"></p></div>
+        <div class="result"><h3>Suggested business reply</h3>{% if not result.action_ready %}<p id="reply">Choose a model output first. A reply will be generated only after the Action Card is refreshed.</p>{% elif result.reply %}<p id="reply">{{ result.reply }}</p><button class="copy" type="button" onclick="copyReply(this)">Copy reply</button>{% else %}<p id="reply">Transcription was unreliable. Correct the English meaning above, then select “Update Action Card from edits.”</p>{% endif %}</div>
+        <div class="result"><h3>Field-test review</h3><p class="hint">Open a separate local review page with system fields prefilled. Human scores and consent remain blank until you verify them.</p><button type="button" id="log-field-test" onclick="openFieldTestDraft(this)" {% if not result.action_ready %}disabled{% endif %}>Log This Interaction</button><p class="status" id="field-test-status">{% if not result.action_ready %}Choose a starting transcript and wait for the Action Card to refresh first.{% endif %}</p></div>
       </div>
       {% endif %}
     </section>
@@ -109,12 +111,18 @@
     function chooseWhisper(){document.getElementById('provider').value='whisper';providerChanged(true);retryUpload();}
     function showValue(id,value){document.getElementById(id).innerText=value===null||value===undefined||value===''?'Not stated':value;}
     let selectedStartingModel='';
-    function chooseStartingTranscript(transcript,model,button){
-      document.getElementById('transcript').value=transcript;selectedStartingModel=model;
+    let selectedStartingLanguage='';
+    let selectedRawTranscript='';
+    function chooseStartingTranscriptFromButton(button){return chooseStartingTranscript(button.dataset.transcript,button.dataset.model,button.dataset.language,button);}
+    async function chooseStartingTranscript(transcript,model,language,button){
+      document.getElementById('transcript').value=transcript;selectedStartingModel=model;selectedStartingLanguage=language;selectedRawTranscript=transcript;
+      document.getElementById('english').value=language==='en-NG'?transcript:'';
       document.getElementById('transcript-corrected').innerText='Starting point selected: '+model;
       document.querySelectorAll('.immutable button').forEach(item=>item.textContent='Use as working-transcript start');
       button.textContent='Selected as starting point';
-      document.getElementById('status').textContent='Starting transcript selected. Review/edit it, then update the Action Card.';
+      document.getElementById('status').textContent=language==='en-NG'?'English starting transcript selected. Refreshing Action Card…':'Yoruba starting transcript selected. No English meaning was invented. Refreshing transcript-only Action Card…';
+      const refreshed=await regenerateAction();
+      if(refreshed){document.getElementById('log-field-test').disabled=false;document.getElementById('field-test-status').textContent='Action Card refreshed. You may now log this interaction.';}
     }
     function updateCritical(key,elementId,state){
       showValue('action-'+elementId,state.value===null?'Unknown':state.value);
@@ -126,18 +134,21 @@
     async function regenerateAction(){
       const status=document.getElementById('status');
       status.textContent='Updating business action…';
-      const response=await fetch('/analyze-action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({raw_transcript:{{ (result.raw_transcript if result else '')|tojson }},transcript:document.getElementById('transcript').value,raw_english:{{ (result.raw_english if result else '')|tojson }},english:document.getElementById('english').value,language:'{{ result.language_code if result else '' }}',confidence:{{ (result.confidence if result else none)|tojson }}})});
+      const response=await fetch('/analyze-action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({raw_transcript:selectedRawTranscript||{{ (result.raw_transcript if result else '')|tojson }},transcript:document.getElementById('transcript').value,raw_english:{{ (result.raw_english if result else '')|tojson }},english:document.getElementById('english').value,language:selectedStartingLanguage||'{{ result.language_code if result else '' }}',confidence:{{ (result.confidence if result else none)|tojson }}})});
       const data=await response.json();
-      if(!response.ok){status.textContent=data.error||'Could not update the action.';return;}
+      if(!response.ok){status.textContent=data.error||'Could not update the action.';return false;}
       const a=data.action;
       showValue('action-languages',a.languages.join(' + '));showValue('action-intent',a.intent.replaceAll('_',' '));showValue('action-customer',a.customer_name);showValue('action-urgency',a.urgency);showValue('action-required',a.required_action);showValue('action-missing',a.missing_information.length?a.missing_information.join(', '):'None detected');showValue('action-confidence',a.confidence);showValue('action-confirmation',a.needs_confirmation?'Yes':'No');
+      showValue('action-items',(a.item_mentions||[]).length?a.item_mentions.map(item=>item.display).join('; '):'None safely structured');
       const fieldIds={product_or_service:'product',quantity:'quantity',amount:'amount',location:'location',date:'date',time:'time',payment_status:'payment',phone_or_reference:'reference'};
       Object.entries(fieldIds).forEach(([key,id])=>updateCritical(key,id,a.field_states[key]));
       document.getElementById('action-confirmation').className=a.needs_confirmation?'warning':'';
       const banner=document.getElementById('safety-banner');banner.className='safety-banner '+(a.needs_confirmation?'alert':'safe');banner.innerText=a.needs_confirmation?'ACTION PAUSED — confirm highlighted fields':'READY FOR REVIEW — no critical uncertainty detected';
       document.getElementById('reply').innerText=a.suggested_reply;
       document.getElementById('transcript-corrected').innerText=data.correction_provenance.transcript_user_corrected?'Yes — user edited':'No';
+      document.getElementById('action-card').style.display='block';const prompt=document.getElementById('action-review-prompt');if(prompt){prompt.style.display='none';}
       status.textContent='Action Card and reply updated. User corrections remain separate from the preserved provider transcript.';
+      return true;
     }
     async function copyReply(button){
       await navigator.clipboard.writeText(document.getElementById('reply').innerText);

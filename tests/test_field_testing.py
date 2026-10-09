@@ -378,6 +378,19 @@ class FieldTestingRouteTests(unittest.TestCase):
             "seed_token": token, "working_transcript": "", "english_meaning": ""
         })
         self.assertEqual(missing.status_code, 400)
+        self.assertIsNotNone(application._inference_drafts.get(token))
+        valid = self.client.post("/field-testing/draft", json={
+            "seed_token": token, "working_transcript": "English raw",
+            "english_meaning": "English raw",
+            "starting_model": "NCAIR1/NigerianAccentedEnglish",
+        })
+        self.assertEqual(valid.status_code, 200)
+        self.assertIsNone(application._inference_drafts.get(token))
+        reused = self.client.post("/field-testing/draft", json={
+            "seed_token": token, "working_transcript": "English raw",
+            "starting_model": "NCAIR1/NigerianAccentedEnglish",
+        })
+        self.assertEqual(reused.status_code, 410)
 
     def test_dual_draft_preserves_outputs_and_starting_provenance(self):
         outputs = [
@@ -399,6 +412,35 @@ class FieldTestingRouteTests(unittest.TestCase):
         self.assertIn(b"Yoruba raw", page.data)
         self.assertIn(b"English raw", page.data)
         self.assertIn(b"Material disagreement detected", page.data)
+
+    def test_existing_interaction_dual_comparison_adds_two_evaluations_only(self):
+        identity = safe_audio_identity("VB-012_order.ogg", "5" * 64)
+        save_interaction(self.path, valid_payload(
+            **identity, provider="Local Whisper", model="large-v3"
+        ))
+        before = len(load_interactions(self.path))
+        outcome = save_interaction(self.path, valid_payload(
+            **identity,
+            provider="NCAIR N-ATLAS",
+            model="NCAIR1/Yoruba-ASR + NCAIR1/NigerianAccentedEnglish",
+            processing_mode="dual_natlas_review",
+            material_disagreement="true",
+            starting_model="NCAIR1/NigerianAccentedEnglish",
+            evaluation_mode="comparison",
+            model_outputs=[
+                {"model": "NCAIR1/Yoruba-ASR", "language": "Yoruba", "status": "completed", "transcript": "private one"},
+                {"model": "NCAIR1/NigerianAccentedEnglish", "language": "Nigerian English", "status": "completed", "transcript": "private two"},
+            ],
+        ))
+        records = load_interactions(self.path)
+        self.assertFalse(outcome["created"])
+        self.assertEqual(len(records), before)
+        self.assertEqual(records[0]["evaluation_count"], 3)
+        self.assertEqual(
+            [item["model"] for item in records[0]["evaluations"][-2:]],
+            ["NCAIR1/Yoruba-ASR", "NCAIR1/NigerianAccentedEnglish"],
+        )
+        self.assertNotIn("private one", json.dumps(records[0]))
 
     def test_integrated_save_uses_trusted_system_fields_and_consumes_draft(self):
         review_url = self._create_draft()

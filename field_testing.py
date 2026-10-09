@@ -334,18 +334,23 @@ def save_interaction(path, payload, now=None):
                     "Choose provider comparison or intentional retest instead."
                 )
             evaluations = _ensure_evaluations(existing)
-            if mode == "comparison" and any(
-                item.get("provider") == normalized["provider"]
-                and item.get("model") == normalized["model"]
-                for item in evaluations
-            ):
+            incoming = _dual_evaluations(normalized, timestamp)
+            incoming_models = {
+                (item.get("provider"), item.get("model")) for item in incoming
+            }
+            existing_models = {
+                (item.get("provider"), item.get("model")) for item in evaluations
+            }
+            if mode == "comparison" and incoming_models & existing_models:
                 raise FieldTestValidationError(
                     "That provider/model is already evaluated for this recording. "
                     "Choose intentional retest to preserve another run."
                 )
-            evaluation = _evaluation(normalized, timestamp)
-            evaluation["evaluation_id"] = _next_evaluation_id(existing)
-            evaluations.append(evaluation)
+            start = len(evaluations) + 1
+            for offset, item in enumerate(incoming):
+                item["evaluation_id"] = f"EVAL-{start + offset:03d}"
+                evaluations.append(item)
+            evaluation = incoming[0]
             existing["evaluation_count"] = len(evaluations)
             existing["last_evaluated_at"] = timestamp.isoformat()
             outcome = {"record": existing, "evaluation": evaluation, "created": False}

@@ -63,6 +63,35 @@ class ActionEngineTests(unittest.TestCase):
         self.assertTrue(result["field_states"]["payment_status"]["requires_confirmation"])
         self.assertIn("independently", result["required_action"].lower())
 
+    def test_unknown_order_product_is_preserved_but_requires_confirmation(self):
+        result = analyze_business_action(
+            "I want three loaves of bread", asr_confidence=95
+        )
+        self.assertEqual(result["intent"], "NEW_ORDER")
+        self.assertEqual(result["item_mentions"][0]["item"], "loaves of bread")
+        self.assertEqual(result["item_mentions"][0]["quantity"], 3)
+        self.assertEqual(result["product_or_service"], "3 loaves of bread")
+        state = result["field_states"]["product_or_service"]
+        self.assertTrue(state["requires_confirmation"])
+        self.assertEqual(state["reason"], "Product/service requires human confirmation")
+
+    def test_multi_item_order_is_not_collapsed_to_one_product_quantity_pair(self):
+        result = analyze_business_action(
+            "I want three loaves of bread, four fishes, and some spags and other things",
+            asr_confidence=95,
+        )
+        self.assertEqual(
+            [item["display"] for item in result["item_mentions"]],
+            ["3 loaves of bread", "4 fishes", "some spags"],
+        )
+        self.assertEqual(
+            result["product_or_service"],
+            "3 loaves of bread; 4 fishes; some spags",
+        )
+        self.assertIsNone(result["quantity"])
+        self.assertTrue(result["field_states"]["quantity"]["requires_confirmation"])
+        self.assertTrue(result["field_states"]["product_or_service"]["requires_confirmation"])
+
 
 if __name__ == "__main__":
     unittest.main()
