@@ -54,6 +54,8 @@ class ApplicationTests(unittest.TestCase):
         ]
         positions = [response.data.index(label.encode()) for label in labels]
         self.assertEqual(positions, sorted(positions))
+        self.assertIn(b'<option value="natlas_en" selected>', response.data)
+        self.assertNotIn(b'<option value="dual_natlas" selected>', response.data)
 
     def test_one_upload_invokes_both_natlas_models_and_keeps_outputs_separate(self):
         outputs = [

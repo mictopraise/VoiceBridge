@@ -439,11 +439,11 @@ def index():
     result = None
     error = None
     natlas_failed = False
-    submitted_provider = request.form.get("provider", "dual_natlas")
+    submitted_provider = request.form.get("provider", "natlas_en")
     unsupported_provider = submitted_provider not in {*PROVIDERS, "natlas"}
     provider_choice = submitted_provider
     if unsupported_provider:
-        provider_choice = "dual_natlas"
+        provider_choice = "natlas_en"
     language_catalog = (
         DUAL_NATLAS_LANGUAGES if provider_choice == "dual_natlas"
         else NATLAS_YORUBA_LANGUAGE if provider_choice == "natlas_yo"
