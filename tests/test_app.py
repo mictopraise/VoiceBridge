@@ -44,7 +44,16 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"VoiceBridge", response.data)
         self.assertIn(b"N-ATLAS", response.data)
-        self.assertIn(b"Dual N-ATLAS Review", response.data)
+        self.assertIn("Fast — Yoruba".encode(), response.data)
+        self.assertIn("Fast — Nigerian English".encode(), response.data)
+        self.assertIn("Double-check — Run both N-ATLAS models".encode(), response.data)
+        self.assertIn("Whisper — Explicit alternative".encode(), response.data)
+        labels = [
+            "Fast — Yoruba", "Fast — Nigerian English",
+            "Double-check — Run both N-ATLAS models", "Whisper — Explicit alternative",
+        ]
+        positions = [response.data.index(label.encode()) for label in labels]
+        self.assertEqual(positions, sorted(positions))
 
     def test_one_upload_invokes_both_natlas_models_and_keeps_outputs_separate(self):
         outputs = [

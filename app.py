@@ -59,10 +59,10 @@ NATLAS_LANGUAGES = {
     "en-NG": ("en-NG", "Nigerian-accented English"),
 }
 PROVIDERS = {
-    "dual_natlas": "Dual N-ATLAS Review — Recommended",
-    "natlas_yo": "N-ATLAS Yoruba",
-    "natlas_en": "N-ATLAS Nigerian English",
-    "whisper": "Whisper — Local explicit alternative",
+    "natlas_yo": "Fast — Yoruba",
+    "natlas_en": "Fast — Nigerian English",
+    "dual_natlas": "Double-check — Run both N-ATLAS models",
+    "whisper": "Whisper — Explicit alternative",
 }
 DUAL_NATLAS_LANGUAGES = {
     "dual": (None, "Yoruba-ASR + NigerianAccentedEnglish (sequential review)"),
